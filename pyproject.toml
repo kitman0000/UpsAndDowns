@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "endstone_up_and_down"
+version = "0.4.0"
+dependencies = [
+    "yfinance"
+]
+authors = [
+    { name = "Endstone Developers", email = "hello@endstone.dev" },
+]
+description = "Python example plugin for Endstone servers"
+readme = "README.md"
+license = { file = "LICENSE" }
+keywords = ["endstone", "plugin"]
+
+[project.urls]
+Homepage = "https://github.com/EndstoneMC/python-example-plugin"
+
+[project.entry-points."endstone"]
+up_and_down = "endstone_up_and_down:UpAndDownPlugin"

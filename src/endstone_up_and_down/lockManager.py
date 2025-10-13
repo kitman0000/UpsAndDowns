@@ -19,15 +19,15 @@ class LockWithTimeout:
 
 class LockManager:
     def __init__(self):
-        self.lock_dict: Dict[str, Lock] = dict() # UUID, Lock
+        self.lock_dict: Dict[str, Lock] = dict() # XUID, Lock
         self.manager_lock = Lock()
         
-    def get_player_lock(self, uuid: str):
+    def get_player_lock(self, xuid: str):
         with self.manager_lock:
-            if uuid in self.lock_dict:
-                return self.lock_dict[uuid]
+            if xuid in self.lock_dict:
+                return self.lock_dict[xuid]
             else:
                 player_lock = Lock()
-                self.lock_dict[uuid] = player_lock
+                self.lock_dict[xuid] = player_lock
                 
                 return player_lock

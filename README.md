@@ -1,75 +1,166 @@
-# Endstone Python Example Plugin
+# EndStone 股票交易插件 (Ups and Downs)
 
-Welcome to the example Python plugin for Endstone servers.
+一个基于 EndStone 框架的 Minecraft 股票交易模拟插件，支持实时美股数据交易。
 
-## Prerequisites
+## 📋 系统要求
 
-- Python 3.9 or higher.
-- Endstone installed and set up in your Python environment.
+- **Python**: 3.13+
+- **Minecraft 服务器**: 支持 EndStone 框架
+- **依赖插件**: arc_core (经济系统)
 
-## Structure Overview
+## 📦 依赖安装
 
-```
-python-example-plugin/ 
-├── src/                         # Main source directory 
-│   └── endstone_example/        # Directory for the plugin package 
-│       ├── __init__.py          # Initializer for the package, importing ExamplePlugin class from example_plugin.py
-│       ├── example_plugin.py    # Implementation of ExamplePlugin class
-│       └── python_command.py    # Custom command executor for /python
-├── .gitignore                   # Git ignore rules
-├── LICENSE                      # License details
-├── README.md                    # This file
-└── pyproject.toml               # Plugin configuration file which specifies the entrypoint
+```bash
+pip install endstone yfinance
 ```
 
-## Getting Started
+## 🚀 安装方法
 
-1. **Clone this Repository**
+1. 将插件文件放入服务器的 `plugins` 目录
+2. 确保已安装 `arc_core` 经济插件
+3. 重启服务器
 
-   ```bash
-   git clone https://github.com/EndstoneMC/python-example-plugin.git
-   ```
+## ✨ 主要功能
 
-2. **Navigate to the Cloned Directory**
+### 🏦 股票交易系统
+- **实时数据**: 同步美股市场实时价格
+- **多种订单**: 支持市价单和限价单
+- **手续费**: 每笔交易收取 2% 手续费
+- **持仓管理**: 自动计算平均成本和盈亏
 
-   ```bash
-   cd python-example-plugin
-   ```
+### 💰 账户管理
+- **资金转入**: 从游戏账户转入股票资金
+- **资金转出**: 将股票盈利转回游戏账户
+- **余额查询**: 实时查看账户余额和持仓
 
-3. **Install Your Plugin**
+### 📊 数据展示
+- **价格走势**: 查看股票历史价格变化
+- **持仓详情**: 显示每只股票的盈亏情况
+- **历史订单**: 完整的交易记录
 
-   When developing the plugin, you may want to install an editable package to your Python environment, this allows you
-   to update the codes without having to reinstall the package everytime:
-   ```bash
-   pip install -e .
-   ```
-   **NOTE: It is strongly recommended to create a virtual environment for your Endstone server and plugins. When
-   installing your plugin using `pip install`, please ensure the virtual environment is activated.**
+### 🏆 排行榜系统
+- **绝对盈亏榜**: 按赚/亏金额排序
+- **相对盈亏榜**: 按盈亏百分比排序
+- **实时更新**: 动态显示玩家排名
 
-   Ensure your plugin is loaded correctly by checking the server logs or console for the log messages.
+### ⚙️ 个性化设置
+- **配色方案**: 支持红涨绿跌（中国）和绿涨红跌（美国）
+- **收藏夹**: 收藏常用股票
+- **UI界面**: 现代化的图形界面
 
-4. **Package and Distribute Your Plugin**
+## 🎮 使用方法
 
-   When everything is good to go, you can package your plugin into a `.whl` (Wheel) file for easier distribution:
+### 基础命令
 
-   ```bash
-   pip install pipx
-   pipx run build --wheel
-   ```
+```
+/stock help                    # 显示帮助信息
+/stock ui                      # 打开图形化界面（推荐）
+/stock account                 # 查看账户余额
+```
 
-   This command will produce a `.whl` file in the `dist` directory. Copy the `.whl` file to the `plugins` directory
-   of your Endstone server. Start the Endstone server and check the logs to ensure your plugin loads and operates
-   as expected.
+### 资金管理
 
-   To publish your plugin to a package index such as PyPI, please refer to:
-    - [Using TestPyPI](https://packaging.python.org/en/latest/guides/using-testpypi/)
-    - [Publishing package distribution releases using GitHub Actions CI/CD workflows](https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/)
+```
+/stock transferin <金额>        # 从游戏账户转入资金
+/stock transferout <金额>       # 转出资金到游戏账户
+```
 
-## Documentation
+### 股票交易
 
-For a deeper dive into the Endstone API and its functionalities, refer to the main
-Endstone [documentation](https://endstone.readthedocs.io) (WIP).
+```
+/stock show <股票代码> [时间范围]    # 查看股票价格走势
+/stock buy <股票代码> <股数> [价格]   # 购买股票
+/stock sell <股票代码> <股数> [价格]  # 出售股票
+```
 
-## License
+**时间范围选项**:
+- `minute` - 10分钟 (默认)
+- `day` - 10天
+- `month` - 10个月
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+**订单类型**:
+- 不指定价格 = 市价单（立即成交）
+- 指定价格 = 限价单（等待合适价格）
+
+### 查询功能
+
+```
+/stock orders [页数]           # 查看历史订单
+/stock shares [页数]           # 查看当前持仓
+```
+
+## 📈 支持的股票
+
+- **美股**: AAPL, TSLA, MSFT, GOOGL, AMZN 等
+- **加密货币**: BTC-USD, ETH-USD 等
+- **其他**: 支持 yfinance 库的所有股票代码
+
+## 🎨 界面功能
+
+### 主面板
+- 账户概览
+- 盈亏统计
+- 快速操作入口
+
+### 持仓管理
+- 实时市值计算
+- 盈亏百分比显示
+- 一键交易操作
+
+### 股票搜索
+- 实时价格查询
+- 价格走势图表
+- 收藏功能
+
+### 排行榜
+- 土豪榜（绝对盈亏前5）
+- 高手榜（相对盈亏前5）
+- 韭菜榜（亏损榜）
+
+## ⚠️ 重要说明
+
+1. **模拟交易**: 本插件为模拟交易，不会产生真实交易
+2. **数据延迟**: 价格数据可能有延迟，仅供参考
+3. **风险提示**: 投资有风险，请理性交易
+4. **网络要求**: 需要稳定的网络连接获取股票数据
+
+## 🔧 配置选项
+
+插件支持以下配置：
+
+- **代理设置**: 支持 HTTP/HTTPS 代理
+- **颜色方案**: 可自定义涨跌颜色
+- **手续费率**: 默认 2%（可调整）
+
+## 🐛 故障排除
+
+### 常见问题
+
+**Q: 无法获取股票价格？**
+A: 检查网络连接，确认股票代码正确
+
+**Q: 排行榜显示玩家ID而不是名字？**
+A: 确保 arc_core 插件正常运行
+
+**Q: 交易失败？**
+A: 检查账户余额是否充足，确认股票代码有效
+
+## 📝 更新日志
+
+### v0.4.0
+- 新增图形化UI界面
+- 优化排行榜显示
+- 修复盈亏计算问题
+- 支持玩家名字显示
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+## 📄 许可证
+
+本项目采用 MIT 许可证。
+
+---
+
+**免责声明**: 本插件仅供娱乐使用，不构成投资建议。请勿将虚拟货币与真实货币混淆。

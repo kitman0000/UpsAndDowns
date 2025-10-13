@@ -9,19 +9,25 @@ from endstone.command import Command, CommandSender
 from endstone.event import EventPriority, ServerLoadEvent, event_handler
 from endstone.plugin import Plugin
 import yfinance as yf
-yf.set_config(proxy="127.0.0.1:5555")
 
 from endstone_up_and_down.databaseManager import DatabaseManager
 from endstone_up_and_down.customWebsocket import CustomWebsocket
 from endstone_up_and_down.stockDao import StockDao
 from endstone_up_and_down.lockManager import LockException, LockManager, LockWithTimeout
 from endstone_up_and_down.marketStatusListenr import MarketStatusListener
+from endstone_up_and_down.favorites_manager import FavoritesManager
+from endstone_up_and_down.ui_manager import UIManager
+from endstone_up_and_down.setting_manager import StockSettingManager
+from endstone_up_and_down.player_settings_manager import PlayerSettingsManager
 
 
 class UpAndDownPlugin(Plugin):
     prefix = "UpAndDown"
     api_version = "0.6"
     load = "POSTWORLD"
+    
+    # 插件数据目录
+    MAIN_PATH = "plugins/UpAndDown"
 
     commands = {
         "stock":{
@@ -34,7 +40,8 @@ class UpAndDownPlugin(Plugin):
                                "/stock sell [stockName: string] [share:int] [price:float]",
                                "/stock orders [page:int]",
                                "/stock help",
-                               "/stock shares"
+                               "/stock shares",
+                               "/stock ui"
                                ],
                     "permissions": ["up_and_down.command.transaction"]
                 }
@@ -55,11 +62,31 @@ class UpAndDownPlugin(Plugin):
     }
 
     def on_load(self) -> None:
-        self.database_manager = DatabaseManager("up_and_down.db")
+        # 初始化配置管理器
+        self.setting_manager = StockSettingManager(self.MAIN_PATH)
+        
+        # 配置 yfinance 代理
+        enable_proxy, proxy_address = self.setting_manager.get_proxy_config()
+        if enable_proxy and proxy_address:
+            yf.set_config(proxy=proxy_address)
+            self.logger.info(f"§e已启用代理: {proxy_address}")
+        else:
+            self.logger.info("§e未启用代理")
+        
+        # 设置数据库路径
+        import os
+        db_path = os.path.join(self.MAIN_PATH, "up_and_down.db")
+        
+        self.database_manager = DatabaseManager(db_path)
         self.stock_dao = StockDao(self.database_manager)
         self.stock_dao.init_tables()
         self.economy_plugin = self.server.plugin_manager.get_plugin('arc_core')
         self.lock_manager = LockManager()
+        
+        # 初始化收藏夹管理器、玩家设置管理器和UI管理器
+        self.favorites_manager = FavoritesManager(self.database_manager)
+        self.player_settings_manager = PlayerSettingsManager(self.database_manager)
+        self.ui_manager = UIManager(self)
         
         self.logger.info("§e Up and down Loaded!")
         # self.market_state_listener = MarketStatusListener("AAPL")
@@ -87,6 +114,15 @@ class UpAndDownPlugin(Plugin):
     
         def command_executor():
             try:
+                # 处理UI命令（不需要线程处理）
+                if args and args[0] == "ui":
+                    player = self.server.get_player(sender.name)
+                    if player and hasattr(player, 'send_form'):
+                        self.ui_manager.show_main_panel(player)
+                    else:
+                        sender.send_message("§c只有玩家可以使用UI面板")
+                    return
+                
                 player = self.server.get_player(sender.name)
                 xuid = player.xuid
                 
@@ -139,8 +175,12 @@ class UpAndDownPlugin(Plugin):
                 sender.send_message("Full Traceback:")
                 sender.send_message(f"{full_traceback}")
 
-        thread = threading.Thread(target=command_executor)
-        thread.start()
+        # UI命令不需要线程处理，直接执行
+        if args and args[0] == "ui":
+            command_executor()
+        else:
+            thread = threading.Thread(target=command_executor)
+            thread.start()
         
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -183,7 +223,7 @@ class UpAndDownPlugin(Plugin):
     #                     Command Excutors
     #
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
-    def show(self, uuid, sender, args):
+    def show(self, xuid, sender, args):
         '''
             Show stock price
         '''
@@ -229,7 +269,7 @@ class UpAndDownPlugin(Plugin):
         sender.send_message(price_str)
         
         
-    def transfer_in(self, uuid, sender, args):
+    def transfer_in(self, xuid, sender, args):
         amount = float(args[1])
         player = self.server.get_player(sender.name)
         
@@ -240,17 +280,17 @@ class UpAndDownPlugin(Plugin):
             return
             
         self.economy_plugin.decrease_player_money(player, amount)
-        self.stock_dao.increase_balance(uuid, amount)
+        self.stock_dao.increase_balance(xuid, amount, is_transfer_in=True)
         
         sender.send_message(f"§e成功向股票账户汇入 {amount} 元")
         
         
-    def my_account(self, uuid, sender, args):
-        amount = self.stock_dao.get_balance(uuid)
+    def my_account(self, xuid, sender, args):
+        amount = self.stock_dao.get_balance(xuid)
         sender.send_message(f"§e股票账户余额 {amount} 元")
         
     
-    def transfer_out(self, uuid, sender, args):
+    def transfer_out(self, xuid, sender, args):
         # 获取转出金额
 
         amount = float(args[1])
@@ -259,7 +299,7 @@ class UpAndDownPlugin(Plugin):
         player = self.server.get_player(sender.name)
         
         # 获取玩家股票账户余额
-        stock_balance = self.stock_dao.get_balance(uuid)
+        stock_balance = self.stock_dao.get_balance(xuid)
         
         # 检查股票账户余额是否足够
         if stock_balance < amount:
@@ -269,19 +309,19 @@ class UpAndDownPlugin(Plugin):
         # 执行转账操作
         try:
             # 从股票账户扣除金额
-            self.stock_dao.decrease_balance(uuid, amount)
+            self.stock_dao.decrease_balance(xuid, amount, is_transfer_out=True)
             # 增加玩家游戏账户余额
             self.economy_plugin.increase_player_money(player, amount)
             
-            sender.send_message(f"§e成功从股票账户转出 {amount} 元到游戏账户")
+            sender.send_message(f"§e成功从股票账户转出 {amount} 元到游戏银行账户")
         except Exception as e:
             # 如果转账过程中出现错误，回滚操作
             sender.send_message("§e转账失败，请稍后重试")
             # 可以在这里添加日志记录
-            print(f"Transfer out failed for player {uuid}: {str(e)}")
+            print(f"Transfer out failed for player {xuid}: {str(e)}")
         
         
-    def buy_stock(self, uuid, sender, args):
+    def buy_stock(self, xuid, sender, args):
         '''
             Buy stock
         '''
@@ -308,12 +348,12 @@ class UpAndDownPlugin(Plugin):
             
         market_type = "实时交易" if tradeable else "盘后交易"
         
-        order_id = self.stock_dao.create_order(uuid, stock_name, share, type)
+        order_id = self.stock_dao.create_order(xuid, stock_name, share, type)
         sender.send_message(f"订单创建成功，订单号: {order_id} 类型: {self.order_type_dict[type]} {market_type}")
         
 
         if price < market_price:
-            sender.send_message(f"股票购买失败，当前市场价:{market_price}, 没有人愿意按您的报价{price}元购买")
+            sender.send_message(f"股票购买失败，当前市场价:{market_price}, 没有人愿意按您的报价{price}元交易")
             return
         player_balance = self.economy_plugin.get_player_money(player)
         
@@ -323,12 +363,12 @@ class UpAndDownPlugin(Plugin):
         if player_balance < total_price:
             sender.send_message(f"您的经济实力似乎不足以支付 {total_price} 元")
             return
-        self.stock_dao.decrease_balance(uuid, total_price)
-        self.stock_dao.buy(order_id, stock_name, uuid, share, price, tax, total_price)
+        self.stock_dao.decrease_balance(xuid, total_price)
+        self.stock_dao.buy(order_id, stock_name, xuid, share, price, tax, total_price)
         sender.send_message(f"股票购买成功，总计:{total_price}元")    
             
             
-    def sell_stock(self, uuid, sender, args):
+    def sell_stock(self, xuid, sender, args):
         stock_name = args[1]
         share = Decimal(args[2])
         
@@ -351,14 +391,14 @@ class UpAndDownPlugin(Plugin):
             order_type = "sell_flex"
         
         # 检查玩家持股数量
-        current_holding = self.stock_dao.get_player_stock_holding(uuid, stock_name)
+        current_holding = self.stock_dao.get_player_stock_holding(xuid, stock_name)
         if current_holding < Decimal(share):
             sender.send_message(f"您的持股不足，当前持有 {current_holding} 股")
             return
         
         
         # 创建出售订单
-        order_id = self.stock_dao.create_order(uuid, stock_name, share, order_type)
+        order_id = self.stock_dao.create_order(xuid, stock_name, share, order_type)
         market_type = "实时交易" if tradeable else "盘后交易"
         sender.send_message(f"订单创建成功，订单号: {order_id} 类型: {self.order_type_dict[order_type]} {market_type}")
         
@@ -377,21 +417,22 @@ class UpAndDownPlugin(Plugin):
         net_revenue = total_price - tax
         
         # 执行交易
-        self.stock_dao.sell(order_id, stock_name, uuid, share, price, tax, total_price)
-        self.stock_dao.increase_balance(uuid, net_revenue)
+        self.stock_dao.sell(order_id, stock_name, xuid, share, price, tax, total_price)
+        self.stock_dao.increase_balance(xuid, net_revenue)
         sender.send_message(f"股票出售成功，总计:{net_revenue}元")  
             
-    def help(self, uuid, sender, args):
+    def help(self, xuid, sender, args):
         help_str = '''
 §c警告：本插件为模拟美股交易插件，您的所有操作均为模拟操作，不会产生真实交易。您只能将股票买卖的利润转为游戏币，您永远无法将其提现为现实中可交易的货币。
 
-§6欢迎来到“荣辱浮沉 (Ups and Downs)” 股票插件，在这里，你可以让自己的财富名列服务器榜首，又或者跟随某个臭名昭著的企业的股票一夜蒸发。
+§6欢迎来到"荣辱浮沉 (Ups and Downs)" 股票插件，在这里，你可以让自己的财富名列服务器榜首，又或者跟随某个臭名昭著的企业的股票一夜蒸发。
 
 §6这里的一切股票价格都跟实时同步美股市场，所以我强烈推荐你用现实中的股票软件选股和盯盘。股票价格是非常珍贵的数据，我们所提供的数据也仅供参考。
 
 §6如果你不会查股票？那我建议你学起来，毕竟在这里验证你的智商后，你也会迈向亏光家产，哦不，我是说盆满钵满的那一天，你说对吧？
 
 §h指令列表:
+/stock ui           §a打开图形化UI界面（推荐使用）
 /stock transferin   将资金从服务器经济系统中转入股票账户
 /stock transferout  将资金从股票账户中转入服务器经济系统
 /stock show <股票代码> [时间范围]   查看股票变化， 时间范围选项: minute (10分钟), day (10天), month (10个月)，默认为minute
@@ -409,7 +450,7 @@ class UpAndDownPlugin(Plugin):
         
         sender.send_message(help_str)
         
-    def show_orders(self, uuid, sender, args):
+    def show_orders(self, xuid, sender, args):
         player = self.server.get_player(sender.name)
         
         if len(args) == 1:
@@ -417,7 +458,7 @@ class UpAndDownPlugin(Plugin):
         else:
             page = args[1] - 1
             
-        order_list = self.stock_dao.get_orders(uuid, page)
+        order_list = self.stock_dao.get_orders(xuid, page)
         
         message = ""
         for order in order_list:
@@ -435,7 +476,7 @@ class UpAndDownPlugin(Plugin):
         sender.send_message(f"使用/stock orders {page + 2} 显示下一页")
         
     
-    def show_shares(self, uuid, sender, args):
+    def show_shares(self, xuid, sender, args):
         player = self.server.get_player(sender.name)
         
         if len(args) == 1:
@@ -443,7 +484,7 @@ class UpAndDownPlugin(Plugin):
         else:
             page = args[1] - 1
             
-        share_list = self.stock_dao.get_shares(uuid, page)
+        share_list = self.stock_dao.get_shares(xuid, page)
         
         message = ""
         for order in share_list:

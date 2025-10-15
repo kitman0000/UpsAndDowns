@@ -3,13 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "endstone-up-and-down"
-version = "0.4.0"
+name = "endstone_up_and_down"
+version = "0.5.0"
 dependencies = [
     "yfinance"
 ]
 authors = [
-    { name = "kitman & DEVILENMO", email = "hello@endstone.dev" },
+    { name = "kitman", email = "ken000666@outlook.com" },
+    { name = "DEVILENMO", email = "DEVILENMO@gmail.com" }
 ]
 description = "Stock market simulation plugin"
 readme = "README.md"
@@ -20,4 +21,4 @@ keywords = ["endstone", "plugin"]
 Homepage = "https://github.com/kitman0000/UpsAndDowns"
 
 [project.entry-points."endstone"]
-up-and-down = "endstone_up_and_down:UpAndDownPlugin"
+up_and_down = "endstone_up_and_down:UpAndDownPlugin"

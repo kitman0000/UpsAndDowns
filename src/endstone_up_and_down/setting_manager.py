@@ -53,6 +53,10 @@ enable_proxy=true
 # 股票数据更新间隔（秒）
 # Stock data update interval (seconds)
 update_interval=60
+
+# 交易手续费率（百分比，例如：2.0 表示2%）
+# Trading fee rate (percentage, e.g.: 2.0 means 2%)
+trading_fee_rate=2.0
 """
         with self.setting_file_path.open("w", encoding="utf-8") as f:
             f.write(default_config)
@@ -61,6 +65,7 @@ update_interval=60
         StockSettingManager.setting_dict["proxy"] = "127.0.0.1:5555"
         StockSettingManager.setting_dict["enable_proxy"] = "true"
         StockSettingManager.setting_dict["update_interval"] = "60"
+        StockSettingManager.setting_dict["trading_fee_rate"] = "2.0"
     
     def get_setting(self, key: str, default_value: str = None):
         """
@@ -113,4 +118,14 @@ update_interval=60
             return int(self.get_setting("update_interval", "60"))
         except ValueError:
             return 60
+    
+    def get_trading_fee_rate(self):
+        """
+        获取交易手续费率（百分比）
+        :return: 手续费率，例如 2.0 表示 2%
+        """
+        try:
+            return float(self.get_setting("trading_fee_rate", "2.0"))
+        except ValueError:
+            return 2.0
 

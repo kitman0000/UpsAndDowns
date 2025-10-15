@@ -358,7 +358,8 @@ class UpAndDownPlugin(Plugin):
         player_balance = self.economy_plugin.get_player_money(player)
         
         share = Decimal(str(share))
-        tax = price * share * Decimal('0.02')
+        fee_rate = Decimal(str(self.setting_manager.get_trading_fee_rate() / 100))
+        tax = price * share * fee_rate
         total_price = price * share + tax
         if player_balance < total_price:
             sender.send_message(f"您的经济实力似乎不足以支付 {total_price} 元")
@@ -411,9 +412,10 @@ class UpAndDownPlugin(Plugin):
             )
             return
         
-        # 计算总收入（扣除2%手续费）
+        # 计算总收入（扣除手续费）
         total_price = price * Decimal(share)
-        tax = total_price * Decimal('0.02')
+        fee_rate = Decimal(str(self.setting_manager.get_trading_fee_rate() / 100))
+        tax = total_price * fee_rate
         net_revenue = total_price - tax
         
         # 执行交易
@@ -422,7 +424,14 @@ class UpAndDownPlugin(Plugin):
         sender.send_message(f"股票出售成功，总计:{net_revenue}元")  
             
     def help(self, xuid, sender, args):
-        help_str = '''
+        """显示帮助信息 - 使用UI形式"""
+        player = self.server.get_player(sender.name)
+        if player and hasattr(player, 'send_form'):
+            # 如果玩家在线且有UI支持，显示UI帮助
+            self.ui_manager.show_help_panel(player)
+        else:
+            # 如果无法显示UI，回退到文本消息
+            help_str = '''
 §c警告：本插件为模拟美股交易插件，您的所有操作均为模拟操作，不会产生真实交易。您只能将股票买卖的利润转为游戏币，您永远无法将其提现为现实中可交易的货币。
 
 §6欢迎来到"荣辱浮沉 (Ups and Downs)" 股票插件，在这里，你可以让自己的财富名列服务器榜首，又或者跟随某个臭名昭著的企业的股票一夜蒸发。
@@ -447,8 +456,8 @@ class UpAndDownPlugin(Plugin):
 §s提示：由于屏幕大小限制，↑↑↑请向上滚动阅读完整内容↑↑↑
         
         '''
-        
-        sender.send_message(help_str)
+            
+            sender.send_message(help_str)
         
     def show_orders(self, xuid, sender, args):
         player = self.server.get_player(sender.name)

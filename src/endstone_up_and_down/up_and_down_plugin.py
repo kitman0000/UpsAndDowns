@@ -355,7 +355,7 @@ class UpAndDownPlugin(Plugin):
         if price < market_price:
             sender.send_message(f"股票购买失败，当前市场价:{market_price}, 没有人愿意按您的报价{price}元交易")
             return
-        player_balance = self.economy_plugin.get_player_money(player)
+        player_balance = self.stock_dao.get_balance(xuid)
         
         share = Decimal(str(share))
         fee_rate = Decimal(str(self.setting_manager.get_trading_fee_rate() / 100))

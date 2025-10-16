@@ -3,6 +3,7 @@ import time
 from decimal import *
 import threading
 import random
+from typing import Union
 
 
 from endstone.command import Command, CommandSender
@@ -332,7 +333,7 @@ class UpAndDownPlugin(Plugin):
             print(f"Transfer out failed for player {xuid}: {str(e)}")
         
         
-    def buy_stock(self, xuid, sender, args):
+    def buy_stock(self, xuid, sender, args) -> Union[bool, str]:
         '''
             Buy stock
 
@@ -354,8 +355,9 @@ class UpAndDownPlugin(Plugin):
         
         market_price, tradeable = self.get_stock_last_price(stock_name)
         if tradeable == None:
-            sender.send_message(f"你输入了错误的股票名或该股票市场尚不支持:{args[1]}")
-            return
+            message = f"你输入了错误的股票名或该股票市场尚不支持:{args[1]}"
+            sender.send_message(message)
+            return False, message
         
         if len(args) == 4:
             price = Decimal(str(args[3]))
@@ -370,10 +372,10 @@ class UpAndDownPlugin(Plugin):
         order_id = self.stock_dao.create_order(xuid, stock_name, share, type)
         sender.send_message(f"订单创建成功，订单号: {order_id} 类型: {self.order_type_dict[type]} {market_type}")
         
-
         if price < market_price:
-            sender.send_message(f"股票购买失败，当前市场价:{market_price}, 没有人愿意按您的报价{price}元交易")
-            return
+            message = f"股票购买失败，当前市场价:{market_price}, 没有人愿意按您的报价{price}元交易"
+            sender.send_message(message)
+            return False, message
         player_balance = self.stock_dao.get_balance(xuid)
         
         share = Decimal(str(share))
@@ -381,14 +383,18 @@ class UpAndDownPlugin(Plugin):
         tax = price * share * fee_rate
         total_price = price * share + tax
         if player_balance < total_price:
-            sender.send_message(f"您的经济实力似乎不足以支付 {total_price} 元")
-            return
+            message = f"您的经济实力似乎不足以支付 {total_price} 元"
+            sender.send_message(message)
+            return False, message
         self.stock_dao.decrease_balance(xuid, total_price)
         self.stock_dao.buy(order_id, stock_name, xuid, share, price, tax, total_price)
-        sender.send_message(f"股票购买成功，总计:{total_price}元")    
+
+        message = f"股票购买成功，总计:{total_price}元"
+        sender.send_message(message)
+        return True, message
             
             
-    def sell_stock(self, xuid, sender, args):
+    def sell_stock(self, xuid, sender, args) -> Union[bool, str]:
         stock_name = args[1]
         share = Decimal(args[2])
         
@@ -398,8 +404,9 @@ class UpAndDownPlugin(Plugin):
         # 获取股票当前价格和可交易状态
         market_price, tradeable = self.get_stock_last_price(stock_name)
         if tradeable is None:
-            sender.send_message(f"你输入了错误的股票名或该股票市场尚不支持:{args[1]}")
-            return
+            message = f"你输入了错误的股票名或该股票市场尚不支持:{args[1]}"
+            sender.send_message(message)
+            return False, message
         
         # 解析价格参数（限价单或市价单）
         if len(args) == 4:
@@ -413,8 +420,9 @@ class UpAndDownPlugin(Plugin):
         # 检查玩家持股数量
         current_holding = self.stock_dao.get_player_stock_holding(xuid, stock_name)
         if current_holding < Decimal(share):
-            sender.send_message(f"您的持股不足，当前持有 {current_holding} 股")
-            return
+            message = f"您的持股不足，当前持有 {current_holding} 股"
+            sender.send_message(message)
+            return False, message
         
         
         # 创建出售订单
@@ -425,11 +433,9 @@ class UpAndDownPlugin(Plugin):
 
         # 检查市场价格是否满足限价要求
         if market_price < price:
-            sender.send_message(
-                f"股票出售失败，当前市场价:{market_price}, "
-                f"没有人愿意按您的报价{price}元购买"
-            )
-            return
+            message = f"股票出售失败，当前市场价:{market_price}, 没有人愿意按您的报价{price}元购买"
+            sender.send_message(message)
+            return False, message
         
         # 计算总收入（扣除手续费）
         total_price = price * Decimal(share)
@@ -440,7 +446,11 @@ class UpAndDownPlugin(Plugin):
         # 执行交易
         self.stock_dao.sell(order_id, stock_name, xuid, share, price, tax, total_price)
         self.stock_dao.increase_balance(xuid, net_revenue)
-        sender.send_message(f"股票出售成功，总计:{net_revenue}元")  
+
+        message = f"股票出售成功，总计:{net_revenue}元"
+        sender.send_message(message)
+
+        return True, message
             
     def help(self, xuid, sender, args):
         """显示帮助信息 - 使用UI形式"""

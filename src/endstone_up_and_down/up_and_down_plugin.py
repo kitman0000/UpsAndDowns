@@ -107,15 +107,11 @@ class UpAndDownPlugin(Plugin):
         pass
         # self.logger.info("on_disable is called!")
 
-    def on_command(self, sender: CommandSender, command: Command, args: list[str]) -> bool:
-        '''
-            Command router
-        '''
-    
+    def execute_command(self, sender: CommandSender, args: list[str], return_value:bool, callback=None, callback_args=None):
         def command_executor():
             try:
                 # 处理UI命令（不需要线程处理）
-                if args and args[0] == "ui":
+                if args[0] == "ui":
                     player = self.server.get_player(sender.name)
                     if player and hasattr(player, 'send_form'):
                         self.ui_manager.show_main_panel(player)
@@ -141,7 +137,6 @@ class UpAndDownPlugin(Plugin):
                     "help": self.help,
                     "orders": self.show_orders,
                     "shares": self.show_shares
-                    
                 }
                 
                 require_lock_command_list = ['buy', 'sell', 'transferin', 'transferout']
@@ -152,11 +147,18 @@ class UpAndDownPlugin(Plugin):
                     player_lock = self.lock_manager.get_player_lock(str(xuid))
                     try:
                         with LockWithTimeout(player_lock, 1):
-                            command_func(xuid, sender, args)
+                            rtn = command_func(xuid, sender, args)
                     except LockException as ex:
                         sender.send_error_message("当前账号有其他股票操作正在进行，请稍候操作")
                 else:
-                    command_func(xuid, sender, args)
+                    rtn = command_func(xuid, sender, args)
+                
+                if return_value:
+                    self.server.scheduler.run_task(
+                        self.plugin,
+                        lambda: callback(rtn, sender, callback_args),
+                        delay=0
+                    )
                     
                 
             except Exception as e:
@@ -175,12 +177,21 @@ class UpAndDownPlugin(Plugin):
                 sender.send_message("Full Traceback:")
                 sender.send_message(f"{full_traceback}")
 
-        # UI命令不需要线程处理，直接执行
-        if args and args[0] == "ui":
+        if return_value and callback == None:
+            raise Exception("Callback function must not be None if return value is true, Fool!")
+
+        if args[0] == "ui":
             command_executor()
         else:
             thread = threading.Thread(target=command_executor)
             thread.start()
+
+    def on_command(self, sender: CommandSender, command: Command, args: list[str]) -> bool:
+        '''
+            Command router
+        '''
+        self.execute_command(sender, args, False)
+
         
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -324,6 +335,14 @@ class UpAndDownPlugin(Plugin):
     def buy_stock(self, xuid, sender, args):
         '''
             Buy stock
+
+            args[0] buy
+            args[1] stock_name
+            args[2] share
+            args[3] [price]
+
+            Return:
+            True/False, Message
         '''
         
         player = self.server.get_player(sender.name)

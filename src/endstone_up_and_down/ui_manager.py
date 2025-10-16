@@ -4,6 +4,7 @@ UI管理器 - 处理所有股票插件的UI表单
 import json
 from decimal import Decimal
 from typing import Callable, Optional
+from endstone_up_and_down.up_and_down_plugin import UpAndDownPlugin
 
 from endstone.form import ActionForm, ModalForm, Label, TextInput, Dropdown
 
@@ -14,7 +15,7 @@ class UIManager:
         初始化UI管理器
         :param plugin: 插件实例
         """
-        self.plugin = plugin
+        self.plugin:UpAndDownPlugin = plugin
     
     # ==================== 主面板 ====================
     def show_main_panel(self, player):
@@ -861,8 +862,7 @@ class UIManager:
             
             # 确定价格和订单类型
             if order_type_index == 0:  # 市价单
-                price = Decimal(str(market_price))
-                order_type = "buy_flex"
+                pass
             else:  # 限价单
                 try:
                     price = Decimal(limit_price_str)
@@ -872,47 +872,35 @@ class UIManager:
                     player.send_message("§c请输入有效的限价（大于0的数字）")
                     self.show_buy_panel(player, stock_name)
                     return
-                order_type = "buy_fix"
+                
+            params = ["buy", stock_name, share]
+            if order_type_index != 0:
+                params.append(price)
             
-            # 检查限价单价格
-            if order_type == "buy_fix" and price < market_price:
-                player.send_message(f"§c买入失败: 您的限价 ${price:.2f} 低于市场价 ${market_price:.2f}")
-                self.show_buy_panel(player, stock_name)
-                return
-            
-            # 计算总价
-            share_decimal = Decimal(str(share))
-            fee_rate = Decimal(str(self.plugin.setting_manager.get_trading_fee_rate() / 100))
-            tax = price * share_decimal * fee_rate
-            total_price = price * share_decimal + tax
-            
-            # 检查余额
-            balance = self.plugin.stock_dao.get_balance(xuid)
-            if balance < total_price:
-                player.send_message(f"§c余额不足: 需要 ${total_price:.2f}，当前余额 ${balance:.2f}")
-                self.show_buy_panel(player, stock_name)
-                return
-            
-            # 创建订单
-            order_id = self.plugin.stock_dao.create_order(xuid, stock_name, share, order_type)
-            
-            # 执行买入
-            self.plugin.stock_dao.decrease_balance(xuid, float(total_price))
-            self.plugin.stock_dao.buy(order_id, stock_name, xuid, share_decimal, price, tax, total_price)
-            
-            # 显示结果
-            result_form = ActionForm(
-                title="买入成功",
-                content=f"成功买入 {stock_name}\n\n股数: {share}\n单价: ${price:.2f}\n手续费: ${tax:.2f}\n总价: ${total_price:.2f}",
-                on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
-            )
-            player.send_form(result_form)
+            callback_args = {
+                "stock_name": stock_name
+            }
+            self.plugin.execute_command(player, params, True, self._handle_buy_stock_callback, callback_args)
             
         except Exception as e:
             print(f"买入股票错误: {str(e)}")
             import traceback
             traceback.print_exc()
             player.send_message("§c买入股票时发生错误")
+
+
+    def _handle_buy_stock_callback(self, rtn, player, args):
+        success, message = rtn
+        stock_name = args["stock_name"]
+
+        # 显示结果
+        result_form = ActionForm(
+            title="买入成功" if success else "买入失败",
+            content=message,
+            on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
+        )
+        player.send_form(result_form)
+        
     
     # ==================== 卖出面板 ====================
     def show_sell_panel(self, player, stock_name: str):

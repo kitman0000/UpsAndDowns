@@ -586,7 +586,7 @@ class UIManager:
                         # 添加买入按钮
                         detail_panel.add_button(
                             "买入",
-                            on_click=lambda sender: self.show_buy_panel(sender, stock_name)
+                            on_click=lambda sender: self.show_buy_panel(sender, stock_name, current_price)
                         )
                         
                         # 如果有持仓，添加卖出按钮
@@ -763,7 +763,7 @@ class UIManager:
         thread.start()
     
     # ==================== 买入面板 ====================
-    def show_buy_panel(self, player, stock_name: str):
+    def show_buy_panel(self, player, stock_name: str, market_price:float):
         """显示买入面板"""
         try:
             xuid = player.xuid
@@ -776,7 +776,7 @@ class UIManager:
             buy_form = ModalForm(
                 title=f"买入 {stock_name}",
                 controls=[
-                    Label(text=f"账户余额: ${balance:.2f}\n手续费: {fee_rate}%\n\n注意：市价单将以确认时的实时价格成交\n请输入购买信息:"),
+                    Label(text=f"账户余额: ${balance:.2f}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({market_price * 0.01 * fee_rate})\n\n注意：市价单将以确认时的实时价格成交\n请输入购买信息:"),
                     TextInput(
                         label="购买股数",
                         placeholder="请输入要购买的股数（整数）...",
@@ -793,7 +793,7 @@ class UIManager:
                         default_value=""
                     )
                 ],
-                on_submit=lambda sender, json_str: self._handle_buy_stock(sender, stock_name, json_str),
+                on_submit=lambda sender, json_str: self._handle_buy_stock(sender, stock_name, json_str, market_price),
                 on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
             )
             
@@ -805,7 +805,7 @@ class UIManager:
             traceback.print_exc()
             player.send_message("§c显示买入面板时发生错误")
     
-    def _handle_buy_stock(self, player, stock_name: str, json_str: str):
+    def _handle_buy_stock(self, player, stock_name: str, json_str: str, market_price: float):
         """处理买入股票"""
         try:
             xuid = player.xuid
@@ -823,7 +823,7 @@ class UIManager:
                     raise ValueError()
             except:
                 player.send_message("§c请输入有效的股数（大于0的整数）")
-                self.show_buy_panel(player, stock_name)
+                self.show_buy_panel(player, stock_name, market_price)
                 return
             
             # 构建参数
@@ -836,7 +836,7 @@ class UIManager:
                     params.append(price)
                 except:
                     player.send_message("§c请输入有效的限价（大于0的数字）")
-                    self.show_buy_panel(player, stock_name)
+                    self.show_buy_panel(player, stock_name, market_price)
                     return
             
             callback_args = {
@@ -865,7 +865,7 @@ class UIManager:
         
     
     # ==================== 卖出面板 ====================
-    def show_sell_panel(self, player, stock_name: str):
+    def show_sell_panel(self, player, stock_name: str, market_price: float):
         """显示卖出面板"""
         try:
             xuid = player.xuid
@@ -883,7 +883,7 @@ class UIManager:
             sell_form = ModalForm(
                 title=f"卖出 {stock_name}",
                 controls=[
-                    Label(text=f"持有股数: {holding}\n手续费: {fee_rate}%\n\n注意：市价单将以确认时的实时价格成交\n请输入卖出信息:"),
+                    Label(text=f"持有股数: {holding}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({market_price * 0.01 * fee_rate})%\n\n注意：市价单将以确认时的实时价格成交\n请输入卖出信息:"),
                     TextInput(
                         label="卖出股数",
                         placeholder=f"请输入要卖出的股数（最多{holding}）...",
@@ -900,7 +900,7 @@ class UIManager:
                         default_value=""
                     )
                 ],
-                on_submit=lambda sender, json_str: self._handle_sell_stock(sender, stock_name, holding, json_str),
+                on_submit=lambda sender, json_str: self._handle_sell_stock(sender, stock_name, holding, json_str, market_price),
                 on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
             )
             
@@ -912,7 +912,7 @@ class UIManager:
             traceback.print_exc()
             player.send_message("§c显示卖出面板时发生错误")
     
-    def _handle_sell_stock(self, player, stock_name: str, max_holding: int, json_str: str):
+    def _handle_sell_stock(self, player, stock_name: str, max_holding: int, json_str: str, market_price: float):
         """处理卖出股票"""
         try:
             xuid = player.xuid
@@ -930,7 +930,7 @@ class UIManager:
                     raise ValueError()
             except:
                 player.send_message(f"§c请输入有效的股数（1-{max_holding}）")
-                self.show_sell_panel(player, stock_name)
+                self.show_sell_panel(player, stock_name, market_price)
                 return
             
             # 构建参数
@@ -943,7 +943,7 @@ class UIManager:
                     params.append(price)
                 except:
                     player.send_message("§c请输入有效的限价（大于0的数字）")
-                    self.show_sell_panel(player, stock_name)
+                    self.show_sell_panel(player, stock_name, market_price)
                     return
             
             callback_args = {

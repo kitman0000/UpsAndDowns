@@ -771,12 +771,13 @@ class UIManager:
             # 获取账户余额（这个不需要实时价格）
             balance = self.plugin.stock_dao.get_balance(xuid)
             fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
+            fee = Decimal(str(market_price)) * Decimal(0.01) * Decimal(str(fee_rate))
             
             # 直接显示UI，不获取价格
             buy_form = ModalForm(
                 title=f"买入 {stock_name}",
                 controls=[
-                    Label(text=f"账户余额: ${balance:.2f}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({Decimal(market_price) * Decimal(0.01) * Decimal(fee_rate)})\n\n注意：市价单将以确认时的实时价格成交\n请输入购买信息:"),
+                    Label(text=f"账户余额: ${balance:.2f}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})\n\n注意：市价单将以确认时的实时价格成交\n请输入购买信息:"),
                     TextInput(
                         label="购买股数",
                         placeholder="请输入要购买的股数（整数）...",
@@ -873,6 +874,7 @@ class UIManager:
             # 获取持仓（这个不需要实时价格）
             holding = self.plugin.stock_dao.get_player_stock_holding(xuid, stock_name)
             fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
+            fee = Decimal(str(market_price)) * Decimal(0.01) * Decimal(str(fee_rate))
             
             if holding <= 0:
                 player.send_message(f"§c您没有持有 {stock_name}")
@@ -883,7 +885,7 @@ class UIManager:
             sell_form = ModalForm(
                 title=f"卖出 {stock_name}",
                 controls=[
-                    Label(text=f"持有股数: {holding}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({Decimal(market_price) * Decimal(0.01) * Decimal(fee_rate)})%\n\n注意：市价单将以确认时的实时价格成交\n请输入卖出信息:"),
+                    Label(text=f"持有股数: {holding}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})%\n\n注意：市价单将以确认时的实时价格成交\n请输入卖出信息:"),
                     TextInput(
                         label="卖出股数",
                         placeholder=f"请输入要卖出的股数（最多{holding}）...",

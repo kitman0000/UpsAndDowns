@@ -593,7 +593,7 @@ class UIManager:
                         if holding > 0:
                             detail_panel.add_button(
                                 "卖出",
-                                on_click=lambda sender: self.show_sell_panel(sender, stock_name)
+                                on_click=lambda sender: self.show_sell_panel(sender, stock_name, current_price)
                             )
                         
                         # 添加收藏/取消收藏按钮
@@ -776,7 +776,7 @@ class UIManager:
             buy_form = ModalForm(
                 title=f"买入 {stock_name}",
                 controls=[
-                    Label(text=f"账户余额: ${balance:.2f}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({market_price * 0.01 * fee_rate})\n\n注意：市价单将以确认时的实时价格成交\n请输入购买信息:"),
+                    Label(text=f"账户余额: ${balance:.2f}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({Decimal(market_price) * Decimal(0.01) * Decimal(fee_rate)})\n\n注意：市价单将以确认时的实时价格成交\n请输入购买信息:"),
                     TextInput(
                         label="购买股数",
                         placeholder="请输入要购买的股数（整数）...",
@@ -883,7 +883,7 @@ class UIManager:
             sell_form = ModalForm(
                 title=f"卖出 {stock_name}",
                 controls=[
-                    Label(text=f"持有股数: {holding}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({market_price * 0.01 * fee_rate})%\n\n注意：市价单将以确认时的实时价格成交\n请输入卖出信息:"),
+                    Label(text=f"持有股数: {holding}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({Decimal(market_price) * Decimal(0.01) * Decimal(fee_rate)})%\n\n注意：市价单将以确认时的实时价格成交\n请输入卖出信息:"),
                     TextInput(
                         label="卖出股数",
                         placeholder=f"请输入要卖出的股数（最多{holding}）...",

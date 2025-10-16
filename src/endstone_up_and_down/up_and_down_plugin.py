@@ -156,7 +156,7 @@ class UpAndDownPlugin(Plugin):
                 
                 if return_value:
                     self.server.scheduler.run_task(
-                        self.plugin,
+                        self,
                         lambda: callback(rtn, sender, callback_args),
                         delay=0
                     )

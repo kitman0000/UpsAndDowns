@@ -3,10 +3,12 @@ UI管理器 - 处理所有股票插件的UI表单
 """
 import json
 from decimal import Decimal
-from typing import Callable, Optional
-from endstone_up_and_down.up_and_down_plugin import UpAndDownPlugin
+from typing import Callable, Optional, TYPE_CHECKING
 
 from endstone.form import ActionForm, ModalForm, Label, TextInput, Dropdown
+
+if TYPE_CHECKING:
+    from endstone_up_and_down.up_and_down_plugin import UpAndDownPlugin
 
 
 class UIManager:
@@ -15,7 +17,7 @@ class UIManager:
         初始化UI管理器
         :param plugin: 插件实例
         """
-        self.plugin:UpAndDownPlugin = plugin
+        self.plugin: "UpAndDownPlugin" = plugin
     
     # ==================== 主面板 ====================
     def show_main_panel(self, player):
@@ -766,72 +768,36 @@ class UIManager:
         try:
             xuid = player.xuid
             
-            # 使用线程加载数据
-            import threading
+            # 获取账户余额（这个不需要实时价格）
+            balance = self.plugin.stock_dao.get_balance(xuid)
+            fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
             
-            def load_data():
-                try:
-                    # 获取当前价格
-                    current_price, tradeable = self.plugin.get_stock_last_price(stock_name)
-                    
-                    if current_price is None:
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            lambda: player.send_message(f"§c无法获取股票 {stock_name} 的价格信息"),
-                            delay=0
-                        )
-                        return
-                    
-                    # 获取账户余额
-                    balance = self.plugin.stock_dao.get_balance(xuid)
-                    fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
-                    
-                    # 在主线程显示UI
-                    def show_panel():
-                        buy_form = ModalForm(
-                            title=f"买入 {stock_name}",
-                            controls=[
-                                Label(text=f"当前价格: ${current_price:.2f}\n账户余额: ${balance:.2f}\n手续费: {fee_rate}%\n\n请输入购买信息:"),
-                                TextInput(
-                                    label="购买股数",
-                                    placeholder="请输入要购买的股数（整数）...",
-                                    default_value="1"
-                                ),
-                                Dropdown(
-                                    label="订单类型",
-                                    options=["市价单（立即成交）", "限价单（指定价格）"],
-                                    default_index=0
-                                ),
-                                TextInput(
-                                    label="限价（仅限价单需要）",
-                                    placeholder="限价单时填写期望价格...",
-                                    default_value=str(float(current_price))
-                                )
-                            ],
-                            on_submit=lambda sender, json_str: self._handle_buy_stock(sender, stock_name, current_price, json_str),
-                            on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
-                        )
-                        
-                        player.send_form(buy_form)
-                    
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        show_panel,
-                        delay=0
+            # 直接显示UI，不获取价格
+            buy_form = ModalForm(
+                title=f"买入 {stock_name}",
+                controls=[
+                    Label(text=f"账户余额: ${balance:.2f}\n手续费: {fee_rate}%\n\n注意：市价单将以确认时的实时价格成交\n请输入购买信息:"),
+                    TextInput(
+                        label="购买股数",
+                        placeholder="请输入要购买的股数（整数）...",
+                        default_value="1"
+                    ),
+                    Dropdown(
+                        label="订单类型",
+                        options=["市价单（实时价格成交）", "限价单（指定价格）"],
+                        default_index=0
+                    ),
+                    TextInput(
+                        label="限价（仅限价单需要）",
+                        placeholder="限价单时填写期望价格...",
+                        default_value=""
                     )
-                    
-                except Exception as e:
-                    print(f"加载买入面板数据错误: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message("§c加载买入面板时发生错误"),
-                        delay=0
-                    )
+                ],
+                on_submit=lambda sender, json_str: self._handle_buy_stock(sender, stock_name, json_str),
+                on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
+            )
             
-            thread = threading.Thread(target=load_data)
-            thread.start()
+            player.send_form(buy_form)
             
         except Exception as e:
             print(f"显示买入面板错误: {str(e)}")
@@ -839,7 +805,7 @@ class UIManager:
             traceback.print_exc()
             player.send_message("§c显示买入面板时发生错误")
     
-    def _handle_buy_stock(self, player, stock_name: str, market_price, json_str: str):
+    def _handle_buy_stock(self, player, stock_name: str, json_str: str):
         """处理买入股票"""
         try:
             xuid = player.xuid
@@ -860,22 +826,18 @@ class UIManager:
                 self.show_buy_panel(player, stock_name)
                 return
             
-            # 确定价格和订单类型
-            if order_type_index == 0:  # 市价单
-                pass
-            else:  # 限价单
+            # 构建参数
+            params = ["buy", stock_name, share]
+            if order_type_index != 0:  # 限价单
                 try:
                     price = Decimal(limit_price_str)
                     if price <= 0:
                         raise ValueError()
+                    params.append(price)
                 except:
                     player.send_message("§c请输入有效的限价（大于0的数字）")
                     self.show_buy_panel(player, stock_name)
                     return
-                
-            params = ["buy", stock_name, share]
-            if order_type_index != 0:
-                params.append(price)
             
             callback_args = {
                 "stock_name": stock_name
@@ -908,84 +870,41 @@ class UIManager:
         try:
             xuid = player.xuid
             
-            # 使用线程加载数据
-            import threading
+            # 获取持仓（这个不需要实时价格）
+            holding = self.plugin.stock_dao.get_player_stock_holding(xuid, stock_name)
+            fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
             
-            def load_data():
-                try:
-                    # 获取当前价格
-                    current_price, tradeable = self.plugin.get_stock_last_price(stock_name)
-                    
-                    if current_price is None:
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            lambda: player.send_message(f"§c无法获取股票 {stock_name} 的价格信息"),
-                            delay=0
-                        )
-                        return
-                    
-                    # 获取持仓
-                    holding = self.plugin.stock_dao.get_player_stock_holding(xuid, stock_name)
-                    fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
-                    
-                    if holding <= 0:
-                        def show_no_holding():
-                            player.send_message(f"§c您没有持有 {stock_name}")
-                            self.show_stock_detail_panel(player, stock_name)
-                        
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            show_no_holding,
-                            delay=0
-                        )
-                        return
-                    
-                    # 在主线程显示UI
-                    def show_panel():
-                        sell_form = ModalForm(
-                            title=f"卖出 {stock_name}",
-                            controls=[
-                                Label(text=f"当前价格: ${current_price:.2f}\n持有股数: {holding}\n手续费: {fee_rate}%\n\n请输入卖出信息:"),
-                                TextInput(
-                                    label="卖出股数",
-                                    placeholder=f"请输入要卖出的股数（最多{holding}）...",
-                                    default_value=str(holding)
-                                ),
-                                Dropdown(
-                                    label="订单类型",
-                                    options=["市价单（立即成交）", "限价单（指定价格）"],
-                                    default_index=0
-                                ),
-                                TextInput(
-                                    label="限价（仅限价单需要）",
-                                    placeholder="限价单时填写期望价格...",
-                                    default_value=str(float(current_price))
-                                )
-                            ],
-                            on_submit=lambda sender, json_str: self._handle_sell_stock(sender, stock_name, current_price, holding, json_str),
-                            on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
-                        )
-                        
-                        player.send_form(sell_form)
-                    
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        show_panel,
-                        delay=0
-                    )
-                    
-                except Exception as e:
-                    print(f"加载卖出面板数据错误: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message("§c加载卖出面板时发生错误"),
-                        delay=0
-                    )
+            if holding <= 0:
+                player.send_message(f"§c您没有持有 {stock_name}")
+                self.show_stock_detail_panel(player, stock_name)
+                return
             
-            thread = threading.Thread(target=load_data)
-            thread.start()
+            # 直接显示UI，不获取价格
+            sell_form = ModalForm(
+                title=f"卖出 {stock_name}",
+                controls=[
+                    Label(text=f"持有股数: {holding}\n手续费: {fee_rate}%\n\n注意：市价单将以确认时的实时价格成交\n请输入卖出信息:"),
+                    TextInput(
+                        label="卖出股数",
+                        placeholder=f"请输入要卖出的股数（最多{holding}）...",
+                        default_value=str(holding)
+                    ),
+                    Dropdown(
+                        label="订单类型",
+                        options=["市价单（实时价格成交）", "限价单（指定价格）"],
+                        default_index=0
+                    ),
+                    TextInput(
+                        label="限价（仅限价单需要）",
+                        placeholder="限价单时填写期望价格...",
+                        default_value=""
+                    )
+                ],
+                on_submit=lambda sender, json_str: self._handle_sell_stock(sender, stock_name, holding, json_str),
+                on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
+            )
+            
+            player.send_form(sell_form)
             
         except Exception as e:
             print(f"显示卖出面板错误: {str(e)}")
@@ -993,7 +912,7 @@ class UIManager:
             traceback.print_exc()
             player.send_message("§c显示卖出面板时发生错误")
     
-    def _handle_sell_stock(self, player, stock_name: str, market_price, max_holding: int, json_str: str):
+    def _handle_sell_stock(self, player, stock_name: str, max_holding: int, json_str: str):
         """处理卖出股票"""
         try:
             xuid = player.xuid
@@ -1014,54 +933,41 @@ class UIManager:
                 self.show_sell_panel(player, stock_name)
                 return
             
-            # 确定价格和订单类型
-            if order_type_index == 0:  # 市价单
-                price = Decimal(str(market_price))
-                order_type = "sell_flex"
-            else:  # 限价单
+            # 构建参数
+            params = ["sell", stock_name, share]
+            if order_type_index != 0:  # 限价单
                 try:
                     price = Decimal(limit_price_str)
                     if price <= 0:
                         raise ValueError()
+                    params.append(price)
                 except:
                     player.send_message("§c请输入有效的限价（大于0的数字）")
                     self.show_sell_panel(player, stock_name)
                     return
-                order_type = "sell_fix"
             
-            # 检查限价单价格
-            if order_type == "sell_fix" and market_price < price:
-                player.send_message(f"§c卖出失败: 市场价 ${market_price:.2f} 低于您的限价 ${price:.2f}")
-                self.show_sell_panel(player, stock_name)
-                return
-            
-            # 计算收入
-            share_decimal = Decimal(str(share))
-            total_price = price * share_decimal
-            fee_rate = Decimal(str(self.plugin.setting_manager.get_trading_fee_rate() / 100))
-            tax = total_price * fee_rate
-            net_revenue = total_price - tax
-            
-            # 创建订单
-            order_id = self.plugin.stock_dao.create_order(xuid, stock_name, share, order_type)
-            
-            # 执行卖出
-            self.plugin.stock_dao.sell(order_id, stock_name, xuid, share_decimal, price, tax, total_price)
-            self.plugin.stock_dao.increase_balance(xuid, float(net_revenue))
-            
-            # 显示结果
-            result_form = ActionForm(
-                title="卖出成功",
-                content=f"成功卖出 {stock_name}\n\n股数: {share}\n单价: ${price:.2f}\n手续费: ${tax:.2f}\n净收入: ${net_revenue:.2f}",
-                on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
-            )
-            player.send_form(result_form)
+            callback_args = {
+                "stock_name": stock_name
+            }
+            self.plugin.execute_command(player, params, True, self._handle_sell_stock_callback, callback_args)
             
         except Exception as e:
             print(f"卖出股票错误: {str(e)}")
             import traceback
             traceback.print_exc()
             player.send_message("§c卖出股票时发生错误")
+    
+    def _handle_sell_stock_callback(self, rtn, player, args):
+        success, message = rtn
+        stock_name = args["stock_name"]
+
+        # 显示结果
+        result_form = ActionForm(
+            title="卖出成功" if success else "卖出失败",
+            content=message,
+            on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
+        )
+        player.send_form(result_form)
     
     # ==================== 历史订单面板 ====================
     def show_orders_panel(self, player, page: int = 0):

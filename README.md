@@ -70,7 +70,7 @@ pip install endstone yfinance
 /stock sell <股票代码> <股份数> [价格]   出售股票，份数为整数，不填写价格则为市价单，填写价格则为限价单
 /stock orders [页数]    查看我的历史订单，页数默认为1
 /stock shares [页数]    查看我的持仓，页数默认为1
-
+```
 ## 📈 支持的股票
 
 - **美股**: AAPL, TSLA, MSFT, GOOGL, AMZN 等

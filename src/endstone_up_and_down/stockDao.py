@@ -49,6 +49,8 @@ class StockDao:
         
         
     def create_order(self, xuid, stock_name, share, type):
+        stock_name = stock_name.upper()
+        
         self.database_manager.insert("tb_player_order", {
             "player_xuid": xuid,
             "stock_name": stock_name,
@@ -64,6 +66,8 @@ class StockDao:
         return order_id
 
     def buy(self, order_id, stock_name, xuid, share, price, tax, total):
+        stock_name = stock_name.upper()
+        
         # Buy
         exists_share= self.database_manager.query_one("SELECT * FROM tb_player_stock WHERE player_xuid = ? AND stock_name = ?", (xuid, stock_name))
         if exists_share == None:
@@ -90,6 +94,8 @@ class StockDao:
         
         
     def sell(self, order_id, stock_name, xuid, share, price, tax, total):
+        stock_name = stock_name.upper()
+        
         # Sell stock
         # 查询玩家当前持股记录
         exists_share = self.database_manager.query_one(
@@ -200,6 +206,8 @@ class StockDao:
             
             
     def get_player_stock_holding(self, xuid, stock_name):
+        stock_name = stock_name.upper()
+        
         exists_share = self.database_manager.query_one(
             "SELECT * FROM tb_player_stock WHERE player_xuid = ? AND stock_name = ?", 
             (xuid, stock_name)

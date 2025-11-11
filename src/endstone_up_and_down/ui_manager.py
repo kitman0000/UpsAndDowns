@@ -3,9 +3,12 @@ UI管理器 - 处理所有股票插件的UI表单
 """
 import json
 from decimal import Decimal
-from typing import Callable, Optional
+from typing import Callable, Optional, TYPE_CHECKING
 
 from endstone.form import ActionForm, ModalForm, Label, TextInput, Dropdown
+
+if TYPE_CHECKING:
+    from endstone_up_and_down.up_and_down_plugin import UpAndDownPlugin
 
 
 class UIManager:
@@ -14,7 +17,7 @@ class UIManager:
         初始化UI管理器
         :param plugin: 插件实例
         """
-        self.plugin = plugin
+        self.plugin: "UpAndDownPlugin" = plugin
     
     # ==================== 主面板 ====================
     def show_main_panel(self, player):
@@ -27,114 +30,145 @@ class UIManager:
                 self._show_activate_account_panel(player)
                 return
             
-            # 获取账户信息
-            balance = self.plugin.stock_dao.get_balance(xuid)
-            holdings = self.plugin.stock_dao.get_shares(xuid, page=0, page_size=100)
+            # 使用线程加载数据
+            import threading
             
-            # 计算总市值
-            total_market_value = Decimal('0')
-            
-            for holding in holdings:
-                if holding['share'] <= 0:
-                    continue
+            def load_data():
+                try:
+                    # 获取账户信息
+                    balance = self.plugin.stock_dao.get_balance(xuid)
+                    holdings = self.plugin.stock_dao.get_shares(xuid, page=0, page_size=100)
                     
-                stock_name = holding['stock_name']
-                share = Decimal(str(holding['share']))
-                
-                # 获取当前价格
-                current_price, _ = self.plugin.get_stock_last_price(stock_name)
-                if current_price:
-                    market_value = current_price * share
-                    total_market_value += market_value
+                    # 计算总市值
+                    total_market_value = Decimal('0')
+                    
+                    for holding in holdings:
+                        if holding['share'] <= 0:
+                            continue
+                            
+                        stock_name = holding['stock_name']
+                        share = Decimal(str(holding['share']))
+                        
+                        # 获取当前价格
+                        current_price, _ = self.plugin.get_stock_last_price(stock_name)
+                        if current_price:
+                            market_value = current_price * share
+                            total_market_value += market_value
+                    
+                    # 总财富 = 余额 + 总市值
+                    total_wealth = Decimal(str(balance)) + total_market_value
+                    
+                    # 获取累计投入
+                    account_info = self.plugin.database_manager.query_one(
+                        "SELECT total_investment FROM tb_player_account WHERE player_xuid = ?",
+                        (xuid,)
+                    )
+                    total_investment = Decimal(str(account_info.get('total_investment', 0) or 0)) if account_info else Decimal('0')
+                    
+                    # 计算绝对盈亏和相对盈亏
+                    absolute_profit_loss = total_wealth - total_investment
+                    if total_investment > 0:
+                        relative_profit_loss = float((absolute_profit_loss / total_investment) * 100)
+                    else:
+                        relative_profit_loss = 0.0
+                    
+                    # 获取玩家的颜色配置
+                    profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, float(absolute_profit_loss))
+                    
+                    # 构建内容
+                    content = f"=== 股票账户概览 ===\n\n"
+                    content += f"账户余额: ${balance:.2f}\n"
+                    content += f"持仓市值: ${total_market_value:.2f}\n"
+                    content += f"总财富: ${total_wealth:.2f}\n"
+                    content += f"累计投入: ${total_investment:.2f}\n\n"
+                    
+                    # 显示绝对盈亏
+                    if absolute_profit_loss > 0:
+                        content += f"绝对盈亏: {profit_color}+${absolute_profit_loss:.2f}§r\n"
+                    elif absolute_profit_loss < 0:
+                        content += f"绝对盈亏: {profit_color}${absolute_profit_loss:.2f}§r\n"
+                    else:
+                        content += f"绝对盈亏: §7${absolute_profit_loss:.2f}§r\n"
+                    
+                    # 显示相对盈亏
+                    if relative_profit_loss > 0:
+                        content += f"相对盈亏: {profit_color}+{relative_profit_loss:.2f}%%§r\n"
+                    elif relative_profit_loss < 0:
+                        content += f"相对盈亏: {profit_color}{relative_profit_loss:.2f}%%§r\n"
+                    else:
+                        content += f"相对盈亏: §7{relative_profit_loss:.2f}%%§r\n"
+                    
+                    content += f"\n§r提示: 选择下方功能按钮进行操作"
+                    
+                    # 在主线程显示UI
+                    def show_panel():
+                        # 创建主面板
+                        main_panel = ActionForm(
+                            title="股票交易系统",
+                            content=content
+                        )
+                        
+                        # 添加功能按钮
+                        main_panel.add_button(
+                            "我的持仓",
+                            on_click=lambda sender: self.show_holdings_panel(sender)
+                        )
+                        
+                        main_panel.add_button(
+                            "我的收藏",
+                            on_click=lambda sender: self.show_favorites_panel(sender)
+                        )
+                        
+                        main_panel.add_button(
+                            "搜索股票",
+                            on_click=lambda sender: self.show_search_panel(sender)
+                        )
+                        
+                        main_panel.add_button(
+                            "历史订单",
+                            on_click=lambda sender: self.show_orders_panel(sender)
+                        )
+                        
+                        main_panel.add_button(
+                            "账户管理",
+                            on_click=lambda sender: self.show_account_panel(sender)
+                        )
+                        
+                        main_panel.add_button(
+                            "个人设置",
+                            on_click=lambda sender: self.show_player_settings_panel(sender)
+                        )
+                        
+                        main_panel.add_button(
+                            "盈亏排行榜",
+                            on_click=lambda sender: self.show_leaderboard_menu(sender)
+                        )
+                        
+                        main_panel.add_button(
+                            "教学指引",
+                            on_click=lambda sender: self.show_help_panel(sender)
+                        )
+                        
+                        player.send_form(main_panel)
+                    
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        show_panel,
+                        delay=0
+                    )
+                    
+                except Exception as e:
+                    print(f"加载主面板数据错误: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        lambda: player.send_message("§c加载数据时发生错误"),
+                        delay=0
+                    )
             
-            # 总财富 = 余额 + 总市值
-            total_wealth = Decimal(str(balance)) + total_market_value
-            
-            # 获取累计投入
-            account_info = self.plugin.database_manager.query_one(
-                "SELECT total_investment FROM tb_player_account WHERE player_xuid = ?",
-                (xuid,)
-            )
-            total_investment = Decimal(str(account_info.get('total_investment', 0) or 0)) if account_info else Decimal('0')
-            
-            # 计算绝对盈亏和相对盈亏
-            absolute_profit_loss = total_wealth - total_investment
-            if total_investment > 0:
-                relative_profit_loss = float((absolute_profit_loss / total_investment) * 100)
-            else:
-                relative_profit_loss = 0.0
-            
-            # 获取玩家的颜色配置
-            profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, float(absolute_profit_loss))
-            
-            # 构建内容
-            content = f"=== 股票账户概览 ===\n\n"
-            content += f"账户余额: ${balance:.2f}\n"
-            content += f"持仓市值: ${total_market_value:.2f}\n"
-            content += f"总财富: ${total_wealth:.2f}\n"
-            content += f"累计投入: ${total_investment:.2f}\n\n"
-            
-            # 显示绝对盈亏
-            if absolute_profit_loss > 0:
-                content += f"绝对盈亏: {profit_color}+${absolute_profit_loss:.2f}§r\n"
-            elif absolute_profit_loss < 0:
-                content += f"绝对盈亏: {profit_color}${absolute_profit_loss:.2f}§r\n"
-            else:
-                content += f"绝对盈亏: §7${absolute_profit_loss:.2f}§r\n"
-            
-            # 显示相对盈亏
-            if relative_profit_loss > 0:
-                content += f"相对盈亏: {profit_color}+{relative_profit_loss:.2f}%%§r\n"
-            elif relative_profit_loss < 0:
-                content += f"相对盈亏: {profit_color}{relative_profit_loss:.2f}%%§r\n"
-            else:
-                content += f"相对盈亏: §7{relative_profit_loss:.2f}%%§r\n"
-            
-            content += f"\n§r提示: 选择下方功能按钮进行操作"
-            
-            # 创建主面板
-            main_panel = ActionForm(
-                title="股票交易系统",
-                content=content
-            )
-            
-            # 添加功能按钮
-            main_panel.add_button(
-                "我的持仓",
-                on_click=lambda sender: self.show_holdings_panel(sender)
-            )
-            
-            main_panel.add_button(
-                "我的收藏",
-                on_click=lambda sender: self.show_favorites_panel(sender)
-            )
-            
-            main_panel.add_button(
-                "搜索股票",
-                on_click=lambda sender: self.show_search_panel(sender)
-            )
-            
-            main_panel.add_button(
-                "历史订单",
-                on_click=lambda sender: self.show_orders_panel(sender)
-            )
-            
-            main_panel.add_button(
-                "账户管理",
-                on_click=lambda sender: self.show_account_panel(sender)
-            )
-            
-            main_panel.add_button(
-                "个人设置",
-                on_click=lambda sender: self.show_player_settings_panel(sender)
-            )
-            
-            main_panel.add_button(
-                "盈亏排行榜",
-                on_click=lambda sender: self.show_leaderboard_menu(sender)
-            )
-            
-            player.send_form(main_panel)
+            thread = threading.Thread(target=load_data)
+            thread.start()
             
         except Exception as e:
             print(f"显示主面板错误: {str(e)}")
@@ -197,72 +231,112 @@ class UIManager:
         """显示持仓面板"""
         try:
             xuid = player.xuid
-            holdings = self.plugin.stock_dao.get_shares(xuid, page=0, page_size=100)
             
-            # 过滤掉股数为0的持仓
-            holdings = [h for h in holdings if h['share'] > 0]
+            # 使用线程加载数据
+            import threading
             
-            if not holdings:
-                no_holdings_form = ActionForm(
-                    title="我的持仓",
-                    content="您目前没有任何持仓\n\n提示: 使用搜索功能查找并购买股票",
-                    on_close=lambda sender: self.show_main_panel(sender)
-                )
-                player.send_form(no_holdings_form)
-                return
-            
-            # 创建持仓列表面板
-            holdings_panel = ActionForm(
-                title="我的持仓",
-                content="点击股票查看详情和进行交易"
-            )
-            
-            for holding in holdings:
-                stock_name = holding['stock_name']
-                share = holding['share']
-                
-                # 获取当前价格
-                current_price, _ = self.plugin.get_stock_last_price(stock_name)
-                
-                if current_price:
-                    market_value = float(current_price) * share
+            def load_data():
+                try:
+                    holdings = self.plugin.stock_dao.get_shares(xuid, page=0, page_size=100)
                     
-                    # 获取平均成本
-                    avg_cost = self.plugin.stock_dao.get_average_cost(xuid, stock_name)
+                    # 过滤掉股数为0的持仓
+                    holdings = [h for h in holdings if h['share'] > 0]
                     
-                    if avg_cost:
-                        cost = float(avg_cost) * share
-                        profit_loss = market_value - cost
-                        profit_loss_percent = (profit_loss / cost) * 100 if cost > 0 else 0
+                    if not holdings:
+                        def show_no_holdings():
+                            no_holdings_form = ActionForm(
+                                title="我的持仓",
+                                content="您目前没有任何持仓\n\n提示: 使用搜索功能查找并购买股票",
+                                on_close=lambda sender: self.show_main_panel(sender)
+                            )
+                            player.send_form(no_holdings_form)
                         
-                        # 获取颜色
-                        profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                        self.plugin.server.scheduler.run_task(
+                            self.plugin,
+                            show_no_holdings,
+                            delay=0
+                        )
+                        return
+                    
+                    # 构建持仓按钮数据
+                    buttons_data = []
+                    
+                    for holding in holdings:
+                        stock_name = holding['stock_name']
+                        share = holding['share']
                         
-                        if profit_loss > 0:
-                            profit_text = f"{profit_color}+${profit_loss:.2f} (+{profit_loss_percent:.2f}%%)§r"
-                        elif profit_loss < 0:
-                            profit_text = f"{profit_color}${profit_loss:.2f} ({profit_loss_percent:.2f}%%)§r"
+                        # 获取当前价格
+                        current_price, _ = self.plugin.get_stock_last_price(stock_name)
+                        
+                        if current_price:
+                            market_value = float(current_price) * share
+                            
+                            # 获取平均成本
+                            avg_cost = self.plugin.stock_dao.get_average_cost(xuid, stock_name)
+                            
+                            if avg_cost:
+                                cost = float(avg_cost) * share
+                                profit_loss = market_value - cost
+                                profit_loss_percent = (profit_loss / cost) * 100 if cost > 0 else 0
+                                
+                                # 获取颜色
+                                profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                                
+                                if profit_loss > 0:
+                                    profit_text = f"{profit_color}+${profit_loss:.2f} (+{profit_loss_percent:.2f}%%)§r"
+                                elif profit_loss < 0:
+                                    profit_text = f"{profit_color}${profit_loss:.2f} ({profit_loss_percent:.2f}%%)§r"
+                                else:
+                                    profit_text = f"§7${profit_loss:.2f} (0.00%%)§r"
+                            else:
+                                profit_text = "无法计算"
+                            
+                            button_text = f"{stock_name}\n持股: {share} | 市值: ${market_value:.2f}\n{profit_text}"
                         else:
-                            profit_text = f"§7${profit_loss:.2f} (0.00%%)§r"
-                    else:
-                        profit_text = "无法计算"
+                            button_text = f"{stock_name}\n持股: {share} | 价格获取失败"
+                        
+                        buttons_data.append((button_text, stock_name))
                     
-                    button_text = f"{stock_name}\n持股: {share} | 市值: ${market_value:.2f}\n{profit_text}"
-                else:
-                    button_text = f"{stock_name}\n持股: {share} | 价格获取失败"
-                
-                holdings_panel.add_button(
-                    button_text,
-                    on_click=lambda sender, stock=stock_name: self.show_stock_detail_panel(sender, stock, from_holdings=True)
-                )
+                    # 在主线程显示UI
+                    def show_panel():
+                        # 创建持仓列表面板
+                        holdings_panel = ActionForm(
+                            title="我的持仓",
+                            content="点击股票查看详情和进行交易"
+                        )
+                        
+                        for button_text, stock_name in buttons_data:
+                            holdings_panel.add_button(
+                                button_text,
+                                on_click=lambda sender, stock=stock_name: self.show_stock_detail_panel(sender, stock, from_holdings=True)
+                            )
+                        
+                        # 添加返回按钮
+                        holdings_panel.add_button(
+                            "返回主菜单",
+                            on_click=lambda sender: self.show_main_panel(sender)
+                        )
+                        
+                        player.send_form(holdings_panel)
+                    
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        show_panel,
+                        delay=0
+                    )
+                    
+                except Exception as e:
+                    print(f"加载持仓数据错误: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        lambda: player.send_message("§c加载持仓数据时发生错误"),
+                        delay=0
+                    )
             
-            # 添加返回按钮
-            holdings_panel.add_button(
-                "返回主菜单",
-                on_click=lambda sender: self.show_main_panel(sender)
-            )
-            
-            player.send_form(holdings_panel)
+            thread = threading.Thread(target=load_data)
+            thread.start()
             
         except Exception as e:
             print(f"显示持仓面板错误: {str(e)}")
@@ -275,48 +349,88 @@ class UIManager:
         """显示收藏面板"""
         try:
             xuid = player.xuid
-            favorites = self.plugin.favorites_manager.get_favorites(xuid, page=0, page_size=20)
             
-            if not favorites:
-                no_favorites_form = ActionForm(
-                    title="我的收藏",
-                    content="您还没有收藏任何股票\n\n提示: 使用搜索功能查找股票并添加收藏",
-                    on_close=lambda sender: self.show_main_panel(sender)
-                )
-                player.send_form(no_favorites_form)
-                return
+            # 使用线程加载数据
+            import threading
             
-            # 创建收藏列表面板
-            favorites_panel = ActionForm(
-                title="我的收藏",
-                content="点击股票查看详情和进行交互"
-            )
+            def load_data():
+                try:
+                    favorites = self.plugin.favorites_manager.get_favorites(xuid, page=0, page_size=20)
+                    
+                    if not favorites:
+                        def show_no_favorites():
+                            no_favorites_form = ActionForm(
+                                title="我的收藏",
+                                content="您还没有收藏任何股票\n\n提示: 使用搜索功能查找股票并添加收藏",
+                                on_close=lambda sender: self.show_main_panel(sender)
+                            )
+                            player.send_form(no_favorites_form)
+                        
+                        self.plugin.server.scheduler.run_task(
+                            self.plugin,
+                            show_no_favorites,
+                            delay=0
+                        )
+                        return
+                    
+                    # 构建收藏按钮数据
+                    buttons_data = []
+                    
+                    for favorite in favorites:
+                        stock_name = favorite['stock_name']
+                        stock_display_name = favorite.get('stock_display_name', stock_name)
+                        
+                        # 获取当前价格
+                        current_price, tradeable = self.plugin.get_stock_last_price(stock_name)
+                        
+                        if current_price:
+                            status = "开盘" if tradeable else "盘后"
+                            button_text = f"{stock_display_name}\n代码: {stock_name} | 价格: ${current_price:.2f} | {status}"
+                        else:
+                            button_text = f"{stock_display_name}\n代码: {stock_name} | 价格获取失败"
+                        
+                        buttons_data.append((button_text, stock_name))
+                    
+                    # 在主线程显示UI
+                    def show_panel():
+                        # 创建收藏列表面板
+                        favorites_panel = ActionForm(
+                            title="我的收藏",
+                            content="点击股票查看详情和进行交互"
+                        )
+                        
+                        for button_text, stock_name in buttons_data:
+                            favorites_panel.add_button(
+                                button_text,
+                                on_click=lambda sender, stock=stock_name: self.show_stock_detail_panel(sender, stock)
+                            )
+                        
+                        # 添加返回按钮
+                        favorites_panel.add_button(
+                            "返回主菜单",
+                            on_click=lambda sender: self.show_main_panel(sender)
+                        )
+                        
+                        player.send_form(favorites_panel)
+                    
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        show_panel,
+                        delay=0
+                    )
+                    
+                except Exception as e:
+                    print(f"加载收藏数据错误: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        lambda: player.send_message("§c加载收藏数据时发生错误"),
+                        delay=0
+                    )
             
-            for favorite in favorites:
-                stock_name = favorite['stock_name']
-                stock_display_name = favorite.get('stock_display_name', stock_name)
-                
-                # 获取当前价格
-                current_price, tradeable = self.plugin.get_stock_last_price(stock_name)
-                
-                if current_price:
-                    status = "开盘" if tradeable else "盘后"
-                    button_text = f"{stock_display_name}\n代码: {stock_name} | 价格: ${current_price:.2f} | {status}"
-                else:
-                    button_text = f"{stock_display_name}\n代码: {stock_name} | 价格获取失败"
-                
-                favorites_panel.add_button(
-                    button_text,
-                    on_click=lambda sender, stock=stock_name: self.show_stock_detail_panel(sender, stock)
-                )
-            
-            # 添加返回按钮
-            favorites_panel.add_button(
-                "返回主菜单",
-                on_click=lambda sender: self.show_main_panel(sender)
-            )
-            
-            player.send_form(favorites_panel)
+            thread = threading.Thread(target=load_data)
+            thread.start()
             
         except Exception as e:
             print(f"显示收藏面板错误: {str(e)}")
@@ -352,20 +466,49 @@ class UIManager:
                 player.send_message("§c请输入有效的股票代码")
                 return
             
-            # 验证股票是否存在
-            price, tradeable = self.plugin.get_stock_last_price(stock_name)
+            # 使用线程验证股票
+            import threading
             
-            if price is None and tradeable is None:
-                error_form = ActionForm(
-                    title="搜索失败",
-                    content=f"未找到股票: {stock_name}\n\n可能原因:\n1. 股票代码输入错误\n2. 该股票市场暂不支持\n3. 网络连接问题",
-                    on_close=lambda sender: self.show_search_panel(sender)
-                )
-                player.send_form(error_form)
-                return
+            def search_stock():
+                try:
+                    # 验证股票是否存在
+                    price, tradeable = self.plugin.get_stock_last_price(stock_name)
+                    
+                    if price is None and tradeable is None:
+                        def show_error():
+                            error_form = ActionForm(
+                                title="搜索失败",
+                                content=f"未找到股票: {stock_name}\n\n可能原因:\n1. 股票代码输入错误\n2. 该股票市场暂不支持\n3. 网络连接问题",
+                                on_close=lambda sender: self.show_search_panel(sender)
+                            )
+                            player.send_form(error_form)
+                        
+                        self.plugin.server.scheduler.run_task(
+                            self.plugin,
+                            show_error,
+                            delay=0
+                        )
+                        return
+                    
+                    # 显示股票详情
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        lambda: self.show_stock_detail_panel(player, stock_name),
+                        delay=0
+                    )
+                    
+                except Exception as e:
+                    print(f"搜索股票线程错误: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        lambda: player.send_message("§c搜索股票时发生错误"),
+                        delay=0
+                    )
             
-            # 显示股票详情
-            self.show_stock_detail_panel(player, stock_name)
+            thread = threading.Thread(target=search_stock)
+            thread.start()
             
         except Exception as e:
             print(f"搜索股票错误: {str(e)}")
@@ -379,100 +522,130 @@ class UIManager:
         try:
             xuid = player.xuid
             
-            # 获取股票信息
-            current_price, tradeable = self.plugin.get_stock_last_price(stock_name)
+            # 使用线程加载数据
+            import threading
             
-            if current_price is None:
-                player.send_message(f"§c无法获取股票 {stock_name} 的价格信息")
-                return
-            
-            # 获取持仓信息
-            holding = self.plugin.stock_dao.get_player_stock_holding(xuid, stock_name)
-            
-            # 构建详情内容
-            content = f"=== {stock_name} ===\n\n"
-            content += f"当前价格: ${current_price:.2f}\n"
-            content += f"市场状态: {'开盘交易中' if tradeable else '盘后'}\n\n"
-            
-            if holding > 0:
-                market_value = float(current_price) * holding
-                avg_cost = self.plugin.stock_dao.get_average_cost(xuid, stock_name)
-                
-                content += f"持有股数: {holding}\n"
-                content += f"持仓市值: ${market_value:.2f}\n"
-                
-                if avg_cost:
-                    cost = float(avg_cost) * holding
-                    profit_loss = market_value - cost
-                    profit_loss_percent = (profit_loss / cost) * 100 if cost > 0 else 0
+            def load_data():
+                try:
+                    # 获取股票信息
+                    current_price, tradeable = self.plugin.get_stock_last_price(stock_name)
                     
-                    # 获取颜色
-                    profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                    if current_price is None:
+                        self.plugin.server.scheduler.run_task(
+                            self.plugin,
+                            lambda: player.send_message(f"§c无法获取股票 {stock_name} 的价格信息"),
+                            delay=0
+                        )
+                        return
                     
-                    content += f"平均成本: ${avg_cost:.2f}\n"
+                    # 获取持仓信息
+                    holding = self.plugin.stock_dao.get_player_stock_holding(xuid, stock_name)
                     
-                    if profit_loss > 0:
-                        content += f"盈亏: {profit_color}+${profit_loss:.2f} (+{profit_loss_percent:.2f}%%)§r\n"
-                    elif profit_loss < 0:
-                        content += f"盈亏: {profit_color}${profit_loss:.2f} ({profit_loss_percent:.2f}%%)§r\n"
+                    # 构建详情内容
+                    content = f"=== {stock_name} ===\n\n"
+                    content += f"当前价格: ${current_price:.2f}\n"
+                    content += f"市场状态: {'开盘交易中' if tradeable else '盘后'}\n\n"
+                    
+                    if holding > 0:
+                        market_value = float(current_price) * holding
+                        avg_cost = self.plugin.stock_dao.get_average_cost(xuid, stock_name)
+                        
+                        content += f"持有股数: {holding}\n"
+                        content += f"持仓市值: ${market_value:.2f}\n"
+                        
+                        if avg_cost:
+                            cost = float(avg_cost) * holding
+                            profit_loss = market_value - cost
+                            profit_loss_percent = (profit_loss / cost) * 100 if cost > 0 else 0
+                            
+                            # 获取颜色
+                            profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                            
+                            content += f"平均成本: ${avg_cost:.2f}\n"
+                            
+                            if profit_loss > 0:
+                                content += f"盈亏: {profit_color}+${profit_loss:.2f} (+{profit_loss_percent:.2f}%%)§r\n"
+                            elif profit_loss < 0:
+                                content += f"盈亏: {profit_color}${profit_loss:.2f} ({profit_loss_percent:.2f}%%)§r\n"
+                            else:
+                                content += f"盈亏: §7${profit_loss:.2f} (0.00%%)§r\n"
                     else:
-                        content += f"盈亏: §7${profit_loss:.2f} (0.00%%)§r\n"
-            else:
-                content += f"您目前未持有该股票\n"
+                        content += f"您目前未持有该股票\n"
+                    
+                    # 检查是否已收藏
+                    is_favorite = self.plugin.favorites_manager.is_favorite(xuid, stock_name)
+                    
+                    # 在主线程显示UI
+                    def show_panel():
+                        # 创建详情面板
+                        detail_panel = ActionForm(
+                            title=f"{stock_name}",
+                            content=content
+                        )
+                        
+                        # 添加买入按钮
+                        detail_panel.add_button(
+                            "买入",
+                            on_click=lambda sender: self.show_buy_panel(sender, stock_name, current_price)
+                        )
+                        
+                        # 如果有持仓，添加卖出按钮
+                        if holding > 0:
+                            detail_panel.add_button(
+                                "卖出",
+                                on_click=lambda sender: self.show_sell_panel(sender, stock_name, current_price)
+                            )
+                        
+                        # 添加收藏/取消收藏按钮
+                        if is_favorite:
+                            detail_panel.add_button(
+                                "取消收藏",
+                                on_click=lambda sender: self._handle_remove_favorite(sender, stock_name)
+                            )
+                        else:
+                            detail_panel.add_button(
+                                "添加收藏",
+                                on_click=lambda sender: self._handle_add_favorite(sender, stock_name)
+                            )
+                        
+                        # 添加查看历史价格按钮
+                        detail_panel.add_button(
+                            "查看价格走势",
+                            on_click=lambda sender: self._show_price_history_panel(sender, stock_name)
+                        )
+                        
+                        # 添加返回按钮
+                        if from_holdings:
+                            detail_panel.add_button(
+                                "返回持仓",
+                                on_click=lambda sender: self.show_holdings_panel(sender)
+                            )
+                        else:
+                            detail_panel.add_button(
+                                "返回主菜单",
+                                on_click=lambda sender: self.show_main_panel(sender)
+                            )
+                        
+                        player.send_form(detail_panel)
+                    
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        show_panel,
+                        delay=0
+                    )
+                    
+                except Exception as e:
+                    print(f"加载股票详情数据错误: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        lambda: player.send_message("§c加载股票详情时发生错误"),
+                        delay=0
+                    )
             
-            # 检查是否已收藏
-            is_favorite = self.plugin.favorites_manager.is_favorite(xuid, stock_name)
-            
-            # 创建详情面板
-            detail_panel = ActionForm(
-                title=f"{stock_name}",
-                content=content
-            )
-            
-            # 添加买入按钮
-            detail_panel.add_button(
-                "买入",
-                on_click=lambda sender: self.show_buy_panel(sender, stock_name)
-            )
-            
-            # 如果有持仓，添加卖出按钮
-            if holding > 0:
-                detail_panel.add_button(
-                    "卖出",
-                    on_click=lambda sender: self.show_sell_panel(sender, stock_name)
-                )
-            
-            # 添加收藏/取消收藏按钮
-            if is_favorite:
-                detail_panel.add_button(
-                    "取消收藏",
-                    on_click=lambda sender: self._handle_remove_favorite(sender, stock_name)
-                )
-            else:
-                detail_panel.add_button(
-                    "添加收藏",
-                    on_click=lambda sender: self._handle_add_favorite(sender, stock_name)
-                )
-            
-            # 添加查看历史价格按钮
-            detail_panel.add_button(
-                "查看价格走势",
-                on_click=lambda sender: self._show_price_history_panel(sender, stock_name)
-            )
-            
-            # 添加返回按钮
-            if from_holdings:
-                detail_panel.add_button(
-                    "返回持仓",
-                    on_click=lambda sender: self.show_holdings_panel(sender)
-                )
-            else:
-                detail_panel.add_button(
-                    "返回主菜单",
-                    on_click=lambda sender: self.show_main_panel(sender)
-                )
-            
-            player.send_form(detail_panel)
+            thread = threading.Thread(target=load_data)
+            thread.start()
             
         except Exception as e:
             print(f"显示股票详情错误: {str(e)}")
@@ -590,25 +763,21 @@ class UIManager:
         thread.start()
     
     # ==================== 买入面板 ====================
-    def show_buy_panel(self, player, stock_name: str):
+    def show_buy_panel(self, player, stock_name: str, market_price:float):
         """显示买入面板"""
         try:
             xuid = player.xuid
             
-            # 获取当前价格
-            current_price, tradeable = self.plugin.get_stock_last_price(stock_name)
-            
-            if current_price is None:
-                player.send_message(f"§c无法获取股票 {stock_name} 的价格信息")
-                return
-            
-            # 获取账户余额
+            # 获取账户余额（这个不需要实时价格）
             balance = self.plugin.stock_dao.get_balance(xuid)
+            fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
+            fee = Decimal(str(market_price)) * Decimal(0.01) * Decimal(str(fee_rate))
             
+            # 直接显示UI，不获取价格
             buy_form = ModalForm(
                 title=f"买入 {stock_name}",
                 controls=[
-                    Label(text=f"当前价格: ${current_price:.2f}\n账户余额: ${balance:.2f}\n手续费: 2%\n\n请输入购买信息:"),
+                    Label(text=f"账户余额: ${balance:.2f}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})\n\n注意：市价单将以确认时的实时价格成交\n请输入购买信息:"),
                     TextInput(
                         label="购买股数",
                         placeholder="请输入要购买的股数（整数）...",
@@ -616,16 +785,16 @@ class UIManager:
                     ),
                     Dropdown(
                         label="订单类型",
-                        options=["市价单（立即成交）", "限价单（指定价格）"],
+                        options=["市价单（实时价格成交）", "限价单（指定价格）"],
                         default_index=0
                     ),
                     TextInput(
                         label="限价（仅限价单需要）",
                         placeholder="限价单时填写期望价格...",
-                        default_value=str(float(current_price))
+                        default_value=""
                     )
                 ],
-                on_submit=lambda sender, json_str: self._handle_buy_stock(sender, stock_name, current_price, json_str),
+                on_submit=lambda sender, json_str: self._handle_buy_stock(sender, stock_name, json_str, market_price),
                 on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
             )
             
@@ -637,7 +806,7 @@ class UIManager:
             traceback.print_exc()
             player.send_message("§c显示买入面板时发生错误")
     
-    def _handle_buy_stock(self, player, stock_name: str, market_price, json_str: str):
+    def _handle_buy_stock(self, player, stock_name: str, json_str: str, market_price: float):
         """处理买入股票"""
         try:
             xuid = player.xuid
@@ -655,88 +824,68 @@ class UIManager:
                     raise ValueError()
             except:
                 player.send_message("§c请输入有效的股数（大于0的整数）")
-                self.show_buy_panel(player, stock_name)
+                self.show_buy_panel(player, stock_name, market_price)
                 return
             
-            # 确定价格和订单类型
-            if order_type_index == 0:  # 市价单
-                price = Decimal(str(market_price))
-                order_type = "buy_flex"
-            else:  # 限价单
+            # 构建参数
+            params = ["buy", stock_name, share]
+            if order_type_index != 0:  # 限价单
                 try:
                     price = Decimal(limit_price_str)
                     if price <= 0:
                         raise ValueError()
+                    params.append(price)
                 except:
                     player.send_message("§c请输入有效的限价（大于0的数字）")
-                    self.show_buy_panel(player, stock_name)
+                    self.show_buy_panel(player, stock_name, market_price)
                     return
-                order_type = "buy_fix"
             
-            # 检查限价单价格
-            if order_type == "buy_fix" and price < market_price:
-                player.send_message(f"§c买入失败: 您的限价 ${price:.2f} 低于市场价 ${market_price:.2f}")
-                self.show_buy_panel(player, stock_name)
-                return
-            
-            # 计算总价
-            share_decimal = Decimal(str(share))
-            tax = price * share_decimal * Decimal('0.02')
-            total_price = price * share_decimal + tax
-            
-            # 检查余额
-            balance = self.plugin.stock_dao.get_balance(xuid)
-            if balance < total_price:
-                player.send_message(f"§c余额不足: 需要 ${total_price:.2f}，当前余额 ${balance:.2f}")
-                self.show_buy_panel(player, stock_name)
-                return
-            
-            # 创建订单
-            order_id = self.plugin.stock_dao.create_order(xuid, stock_name, share, order_type)
-            
-            # 执行买入
-            self.plugin.stock_dao.decrease_balance(xuid, float(total_price))
-            self.plugin.stock_dao.buy(order_id, stock_name, xuid, share_decimal, price, tax, total_price)
-            
-            # 显示结果
-            result_form = ActionForm(
-                title="买入成功",
-                content=f"成功买入 {stock_name}\n\n股数: {share}\n单价: ${price:.2f}\n手续费: ${tax:.2f}\n总价: ${total_price:.2f}",
-                on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
-            )
-            player.send_form(result_form)
+            callback_args = {
+                "stock_name": stock_name
+            }
+            self.plugin.execute_command(player, params, True, self._handle_buy_stock_callback, callback_args)
             
         except Exception as e:
             print(f"买入股票错误: {str(e)}")
             import traceback
             traceback.print_exc()
             player.send_message("§c买入股票时发生错误")
+
+
+    def _handle_buy_stock_callback(self, rtn, player, args):
+        success, message = rtn
+        stock_name = args["stock_name"]
+
+        # 显示结果
+        result_form = ActionForm(
+            title="买入成功" if success else "买入失败",
+            content=message,
+            on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
+        )
+        player.send_form(result_form)
+        
     
     # ==================== 卖出面板 ====================
-    def show_sell_panel(self, player, stock_name: str):
+    def show_sell_panel(self, player, stock_name: str, market_price: float):
         """显示卖出面板"""
         try:
             xuid = player.xuid
             
-            # 获取当前价格
-            current_price, tradeable = self.plugin.get_stock_last_price(stock_name)
-            
-            if current_price is None:
-                player.send_message(f"§c无法获取股票 {stock_name} 的价格信息")
-                return
-            
-            # 获取持仓
+            # 获取持仓（这个不需要实时价格）
             holding = self.plugin.stock_dao.get_player_stock_holding(xuid, stock_name)
+            fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
+            fee = Decimal(str(market_price)) * Decimal(0.01) * Decimal(str(fee_rate))
             
             if holding <= 0:
                 player.send_message(f"§c您没有持有 {stock_name}")
                 self.show_stock_detail_panel(player, stock_name)
                 return
             
+            # 直接显示UI，不获取价格
             sell_form = ModalForm(
                 title=f"卖出 {stock_name}",
                 controls=[
-                    Label(text=f"当前价格: ${current_price:.2f}\n持有股数: {holding}\n手续费: 2%\n\n请输入卖出信息:"),
+                    Label(text=f"持有股数: {holding}\n单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})%\n\n注意：市价单将以确认时的实时价格成交\n请输入卖出信息:"),
                     TextInput(
                         label="卖出股数",
                         placeholder=f"请输入要卖出的股数（最多{holding}）...",
@@ -744,16 +893,16 @@ class UIManager:
                     ),
                     Dropdown(
                         label="订单类型",
-                        options=["市价单（立即成交）", "限价单（指定价格）"],
+                        options=["市价单（实时价格成交）", "限价单（指定价格）"],
                         default_index=0
                     ),
                     TextInput(
                         label="限价（仅限价单需要）",
                         placeholder="限价单时填写期望价格...",
-                        default_value=str(float(current_price))
+                        default_value=""
                     )
                 ],
-                on_submit=lambda sender, json_str: self._handle_sell_stock(sender, stock_name, current_price, holding, json_str),
+                on_submit=lambda sender, json_str: self._handle_sell_stock(sender, stock_name, holding, json_str, market_price),
                 on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
             )
             
@@ -765,7 +914,7 @@ class UIManager:
             traceback.print_exc()
             player.send_message("§c显示卖出面板时发生错误")
     
-    def _handle_sell_stock(self, player, stock_name: str, market_price, max_holding: int, json_str: str):
+    def _handle_sell_stock(self, player, stock_name: str, max_holding: int, json_str: str, market_price: float):
         """处理卖出股票"""
         try:
             xuid = player.xuid
@@ -783,56 +932,44 @@ class UIManager:
                     raise ValueError()
             except:
                 player.send_message(f"§c请输入有效的股数（1-{max_holding}）")
-                self.show_sell_panel(player, stock_name)
+                self.show_sell_panel(player, stock_name, market_price)
                 return
             
-            # 确定价格和订单类型
-            if order_type_index == 0:  # 市价单
-                price = Decimal(str(market_price))
-                order_type = "sell_flex"
-            else:  # 限价单
+            # 构建参数
+            params = ["sell", stock_name, share]
+            if order_type_index != 0:  # 限价单
                 try:
                     price = Decimal(limit_price_str)
                     if price <= 0:
                         raise ValueError()
+                    params.append(price)
                 except:
                     player.send_message("§c请输入有效的限价（大于0的数字）")
-                    self.show_sell_panel(player, stock_name)
+                    self.show_sell_panel(player, stock_name, market_price)
                     return
-                order_type = "sell_fix"
             
-            # 检查限价单价格
-            if order_type == "sell_fix" and market_price < price:
-                player.send_message(f"§c卖出失败: 市场价 ${market_price:.2f} 低于您的限价 ${price:.2f}")
-                self.show_sell_panel(player, stock_name)
-                return
-            
-            # 计算收入
-            share_decimal = Decimal(str(share))
-            total_price = price * share_decimal
-            tax = total_price * Decimal('0.02')
-            net_revenue = total_price - tax
-            
-            # 创建订单
-            order_id = self.plugin.stock_dao.create_order(xuid, stock_name, share, order_type)
-            
-            # 执行卖出
-            self.plugin.stock_dao.sell(order_id, stock_name, xuid, share_decimal, price, tax, total_price)
-            self.plugin.stock_dao.increase_balance(xuid, float(net_revenue))
-            
-            # 显示结果
-            result_form = ActionForm(
-                title="卖出成功",
-                content=f"成功卖出 {stock_name}\n\n股数: {share}\n单价: ${price:.2f}\n手续费: ${tax:.2f}\n净收入: ${net_revenue:.2f}",
-                on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
-            )
-            player.send_form(result_form)
+            callback_args = {
+                "stock_name": stock_name
+            }
+            self.plugin.execute_command(player, params, True, self._handle_sell_stock_callback, callback_args)
             
         except Exception as e:
             print(f"卖出股票错误: {str(e)}")
             import traceback
             traceback.print_exc()
             player.send_message("§c卖出股票时发生错误")
+    
+    def _handle_sell_stock_callback(self, rtn, player, args):
+        success, message = rtn
+        stock_name = args["stock_name"]
+
+        # 显示结果
+        result_form = ActionForm(
+            title="卖出成功" if success else "卖出失败",
+            content=message,
+            on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
+        )
+        player.send_form(result_form)
     
     # ==================== 历史订单面板 ====================
     def show_orders_panel(self, player, page: int = 0):
@@ -1145,90 +1282,124 @@ class UIManager:
         try:
             xuid = player.xuid
             
-            # 获取所有玩家数据
-            all_data = self.plugin.stock_dao.get_all_players_profit_loss(
-                self.plugin.get_stock_last_price
-            )
+            # 使用线程加载数据
+            import threading
             
-            if not all_data:
-                no_data_form = ActionForm(
-                    title="绝对盈亏榜",
-                    content="暂无数据",
-                    on_close=lambda sender: self.show_leaderboard_menu(sender)
-                )
-                player.send_form(no_data_form)
-                return
+            def load_data():
+                try:
+                    # 获取所有玩家数据
+                    all_data = self.plugin.stock_dao.get_all_players_profit_loss(
+                        self.plugin.get_stock_last_price
+                    )
+                    
+                    if not all_data:
+                        def show_no_data():
+                            no_data_form = ActionForm(
+                                title="绝对盈亏榜",
+                                content="暂无数据",
+                                on_close=lambda sender: self.show_leaderboard_menu(sender)
+                            )
+                            player.send_form(no_data_form)
+                        
+                        self.plugin.server.scheduler.run_task(
+                            self.plugin,
+                            show_no_data,
+                            delay=0
+                        )
+                        return
+                    
+                    # 按绝对盈亏排序
+                    sorted_data = sorted(all_data, key=lambda x: x['absolute_profit_loss'], reverse=True)
+                    
+                    # 获取玩家颜色配置
+                    up_color = self.plugin.player_settings_manager.get_up_color(xuid)
+                    down_color = self.plugin.player_settings_manager.get_down_color(xuid)
+                    
+                    # 构建内容
+                    content = "=== 绝对盈亏排行榜 ===\n\n"
+                    content += "§l§6前5名 (土豪榜)§r\n\n"
+                    
+                    # 显示前5名
+                    for idx, data in enumerate(sorted_data[:5], 1):
+                        player_name = self._get_player_name(data['player_xuid'])
+                        profit_loss = data['absolute_profit_loss']
+                        
+                        # 使用统一的颜色逻辑
+                        color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                        if profit_loss > 0:
+                            sign = "+"
+                        elif profit_loss < 0:
+                            sign = "-"
+                        else:
+                            sign = ""
+                        
+                        medal = f"#{idx}"
+                        
+                        content += f"{medal} {player_name}\n"
+                        content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
+                        content += f"   总财富: ${data['total_wealth']:.2f}\n"
+                        content += f"   (持仓: ${data['holdings_value']:.2f} + 余额: ${data['balance']:.2f})\n"
+                        content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
+                    
+                    content += "§l§7倒数5名 (韭菜榜)§r\n\n"
+                    
+                    # 显示倒数5名
+                    bottom_5 = sorted_data[-5:]
+                    bottom_5.reverse()  # 从最惨的开始
+                    
+                    for idx, data in enumerate(bottom_5, 1):
+                        player_name = self._get_player_name(data['player_xuid'])
+                        profit_loss = data['absolute_profit_loss']
+                        
+                        # 使用统一的颜色逻辑
+                        color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                        if profit_loss > 0:
+                            sign = "+"
+                        elif profit_loss < 0:
+                            sign = "-"
+                        else:
+                            sign = ""
+                        
+                        # 修正排名计算：倒数第1名应该是总排名最后一名
+                        actual_rank = len(sorted_data) - len(bottom_5) + idx
+                        content += f"#{actual_rank} {player_name}\n"
+                        content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
+                        content += f"   总财富: ${data['total_wealth']:.2f}\n"
+                        content += f"   (持仓: ${data['holdings_value']:.2f} + 余额: ${data['balance']:.2f})\n"
+                        content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
+                    
+                    # 在主线程显示UI
+                    def show_panel():
+                        leaderboard_panel = ActionForm(
+                            title="绝对盈亏榜",
+                            content=content
+                        )
+                        
+                        leaderboard_panel.add_button(
+                            "返回排行榜菜单",
+                            on_click=lambda sender: self.show_leaderboard_menu(sender)
+                        )
+                        
+                        player.send_form(leaderboard_panel)
+                    
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        show_panel,
+                        delay=0
+                    )
+                    
+                except Exception as e:
+                    print(f"加载绝对盈亏排行榜数据错误: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        lambda: player.send_message("显示绝对盈亏排行榜时发生错误"),
+                        delay=0
+                    )
             
-            # 按绝对盈亏排序
-            sorted_data = sorted(all_data, key=lambda x: x['absolute_profit_loss'], reverse=True)
-            
-            # 获取玩家颜色配置
-            up_color = self.plugin.player_settings_manager.get_up_color(xuid)
-            down_color = self.plugin.player_settings_manager.get_down_color(xuid)
-            
-            # 构建内容
-            content = "=== 绝对盈亏排行榜 ===\n\n"
-            content += "§l§6前5名 (土豪榜)§r\n\n"
-            
-            # 显示前5名
-            for idx, data in enumerate(sorted_data[:5], 1):
-                player_name = self._get_player_name(data['player_xuid'])
-                profit_loss = data['absolute_profit_loss']
-                
-                # 使用统一的颜色逻辑
-                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                if profit_loss > 0:
-                    sign = "+"
-                elif profit_loss < 0:
-                    sign = ""
-                else:
-                    sign = ""
-                
-                medal = f"#{idx}"
-                
-                content += f"{medal} {player_name}\n"
-                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
-                content += f"   总财富: ${data['total_wealth']:.2f}\n"
-                content += f"   (持仓: ${data['holdings_value']:.2f} + 余额: ${data['balance']:.2f})\n"
-                content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
-            
-            content += "§l§7倒数5名 (韭菜榜)§r\n\n"
-            
-            # 显示倒数5名
-            bottom_5 = sorted_data[-5:]
-            bottom_5.reverse()  # 从最惨的开始
-            
-            for idx, data in enumerate(bottom_5, 1):
-                player_name = self._get_player_name(data['player_xuid'])
-                profit_loss = data['absolute_profit_loss']
-                
-                # 使用统一的颜色逻辑
-                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                if profit_loss > 0:
-                    sign = "+"
-                elif profit_loss < 0:
-                    sign = ""
-                else:
-                    sign = ""
-                
-                # 显示倒数排名：#-1, #-2, #-3, #-4, #-5
-                content += f"#-{idx} {player_name}\n"
-                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
-                content += f"   总财富: ${data['total_wealth']:.2f}\n"
-                content += f"   (持仓: ${data['holdings_value']:.2f} + 余额: ${data['balance']:.2f})\n"
-                content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
-            
-            leaderboard_panel = ActionForm(
-                title="绝对盈亏榜",
-                content=content
-            )
-            
-            leaderboard_panel.add_button(
-                "返回排行榜菜单",
-                on_click=lambda sender: self.show_leaderboard_menu(sender)
-            )
-            
-            player.send_form(leaderboard_panel)
+            thread = threading.Thread(target=load_data)
+            thread.start()
             
         except Exception as e:
             print(f"显示绝对盈亏排行榜错误: {str(e)}")
@@ -1241,107 +1412,141 @@ class UIManager:
         try:
             xuid = player.xuid
             
-            # 获取所有玩家数据
-            all_data = self.plugin.stock_dao.get_all_players_profit_loss(
-                self.plugin.get_stock_last_price
-            )
+            # 使用线程加载数据
+            import threading
             
-            if not all_data:
-                no_data_form = ActionForm(
-                    title="相对盈亏榜",
-                    content="暂无数据",
-                    on_close=lambda sender: self.show_leaderboard_menu(sender)
-                )
-                player.send_form(no_data_form)
-                return
+            def load_data():
+                try:
+                    # 获取所有玩家数据
+                    all_data = self.plugin.stock_dao.get_all_players_profit_loss(
+                        self.plugin.get_stock_last_price
+                    )
+                    
+                    if not all_data:
+                        def show_no_data():
+                            no_data_form = ActionForm(
+                                title="相对盈亏榜",
+                                content="暂无数据",
+                                on_close=lambda sender: self.show_leaderboard_menu(sender)
+                            )
+                            player.send_form(no_data_form)
+                        
+                        self.plugin.server.scheduler.run_task(
+                            self.plugin,
+                            show_no_data,
+                            delay=0
+                        )
+                        return
+                    
+                    # 过滤掉投资额为0的玩家
+                    valid_data = [d for d in all_data if d['total_investment'] > 0]
+                    
+                    if not valid_data:
+                        def show_no_valid_data():
+                            no_data_form = ActionForm(
+                                title="相对盈亏榜",
+                                content="暂无有效投资数据",
+                                on_close=lambda sender: self.show_leaderboard_menu(sender)
+                            )
+                            player.send_form(no_data_form)
+                        
+                        self.plugin.server.scheduler.run_task(
+                            self.plugin,
+                            show_no_valid_data,
+                            delay=0
+                        )
+                        return
+                    
+                    # 按相对盈亏排序
+                    sorted_data = sorted(valid_data, key=lambda x: x['relative_profit_loss'], reverse=True)
+                    
+                    # 获取玩家颜色配置
+                    up_color = self.plugin.player_settings_manager.get_up_color(xuid)
+                    down_color = self.plugin.player_settings_manager.get_down_color(xuid)
+                    
+                    # 构建内容
+                    content = "=== 相对盈亏排行榜 ===\n\n"
+                    content += "§l§6前5名 (高手榜)§r\n\n"
+                    
+                    # 显示前5名
+                    for idx, data in enumerate(sorted_data[:5], 1):
+                        player_name = self._get_player_name(data['player_xuid'])
+                        profit_loss_percent = data['relative_profit_loss']
+                        profit_loss = data['absolute_profit_loss']
+                        
+                        # 使用统一的颜色逻辑
+                        color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                        if profit_loss_percent > 0:
+                            sign = "+"
+                        elif profit_loss_percent < 0:
+                            sign = "-"
+                        else:
+                            sign = ""
+                        
+                        medal = f"#{idx}"
+                        
+                        content += f"{medal} {player_name}\n"
+                        content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
+                        content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
+                    
+                    content += "§l§7倒数5名 (接盘侠榜)§r\n\n"
+                    
+                    # 显示倒数5名
+                    bottom_5 = sorted_data[-5:]
+                    bottom_5.reverse()  # 从最惨的开始
+                    
+                    for idx, data in enumerate(bottom_5, 1):
+                        player_name = self._get_player_name(data['player_xuid'])
+                        profit_loss_percent = data['relative_profit_loss']
+                        profit_loss = data['absolute_profit_loss']
+                        
+                        # 使用统一的颜色逻辑
+                        color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                        if profit_loss_percent > 0:
+                            sign = "+"
+                        elif profit_loss_percent < 0:
+                            sign = "-"
+                        else:
+                            sign = ""
+                        
+                        # 修正排名计算：倒数第1名应该是总排名最后一名
+                        actual_rank = len(sorted_data) - len(bottom_5) + idx
+                        content += f"#{actual_rank} {player_name}\n"
+                        content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
+                        content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
+                    
+                    # 在主线程显示UI
+                    def show_panel():
+                        leaderboard_panel = ActionForm(
+                            title="相对盈亏榜",
+                            content=content
+                        )
+                        
+                        leaderboard_panel.add_button(
+                            "返回排行榜菜单",
+                            on_click=lambda sender: self.show_leaderboard_menu(sender)
+                        )
+                        
+                        player.send_form(leaderboard_panel)
+                    
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        show_panel,
+                        delay=0
+                    )
+                    
+                except Exception as e:
+                    print(f"加载相对盈亏排行榜数据错误: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    self.plugin.server.scheduler.run_task(
+                        self.plugin,
+                        lambda: player.send_message("显示相对盈亏排行榜时发生错误"),
+                        delay=0
+                    )
             
-            # 过滤掉投资额为0的玩家
-            valid_data = [d for d in all_data if d['total_investment'] > 0]
-            
-            if not valid_data:
-                no_data_form = ActionForm(
-                    title="相对盈亏榜",
-                    content="暂无有效投资数据",
-                    on_close=lambda sender: self.show_leaderboard_menu(sender)
-                )
-                player.send_form(no_data_form)
-                return
-            
-            # 按相对盈亏排序
-            sorted_data = sorted(valid_data, key=lambda x: x['relative_profit_loss'], reverse=True)
-            
-            # 获取玩家颜色配置
-            up_color = self.plugin.player_settings_manager.get_up_color(xuid)
-            down_color = self.plugin.player_settings_manager.get_down_color(xuid)
-            
-            # 构建内容
-            content = "=== 相对盈亏排行榜 ===\n\n"
-            content += "§l§6前5名 (高手榜)§r\n\n"
-            
-            # 显示前5名
-            for idx, data in enumerate(sorted_data[:5], 1):
-                player_name = self._get_player_name(data['player_xuid'])
-                profit_loss_percent = data['relative_profit_loss']
-                profit_loss = data['absolute_profit_loss']
-                
-                # 使用统一的颜色逻辑
-                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                if profit_loss_percent > 0:
-                    sign = "+"
-                elif profit_loss_percent < 0:
-                    sign = "-"
-                else:
-                    sign = ""
-                
-                if idx == 1:
-                    medal = "#1"
-                elif idx == 2:
-                    medal = "#2"
-                elif idx == 3:
-                    medal = "#3"
-                else:
-                    medal = f"#{idx}"
-                
-                content += f"{medal} {player_name}\n"
-                content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
-                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
-            
-            content += "§l§7倒数5名 (接盘侠榜)§r\n\n"
-            
-            # 显示倒数5名
-            bottom_5 = sorted_data[-5:]
-            bottom_5.reverse()  # 从最惨的开始
-            
-            for idx, data in enumerate(bottom_5, 1):
-                player_name = self._get_player_name(data['player_xuid'])
-                profit_loss_percent = data['relative_profit_loss']
-                profit_loss = data['absolute_profit_loss']
-                
-                # 使用统一的颜色逻辑
-                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                if profit_loss_percent > 0:
-                    sign = "+"
-                elif profit_loss_percent < 0:
-                    sign = "-"
-                else:
-                    sign = ""
-                
-                # 显示倒数排名：#-1, #-2, #-3, #-4, #-5
-                content += f"#-{idx} {player_name}\n"
-                content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
-                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
-            
-            leaderboard_panel = ActionForm(
-                title="相对盈亏榜",
-                content=content
-            )
-            
-            leaderboard_panel.add_button(
-                "返回排行榜菜单",
-                on_click=lambda sender: self.show_leaderboard_menu(sender)
-            )
-            
-            player.send_form(leaderboard_panel)
+            thread = threading.Thread(target=load_data)
+            thread.start()
             
         except Exception as e:
             print(f"显示相对盈亏排行榜错误: {str(e)}")
@@ -1367,4 +1572,243 @@ class UIManager:
             return f"玩家{player_xuid[:8]}"
         except:
             return f"玩家{player_xuid[:8]}"
+    
+    # ==================== 教学指引面板 ====================
+    def show_help_panel(self, player):
+        """显示教学指引面板"""
+        try:
+            # 获取当前手续费率
+            fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
+            
+            help_content = f'''§c警告：本插件为模拟美股交易插件，您的所有操作均为模拟操作，不会产生真实交易。您只能将股票买卖的利润转为游戏币，您永远无法将其提现为现实中可交易的货币。
+
+§6欢迎来到"荣辱浮沉 (Ups and Downs)" 股票插件，在这里，你可以让自己的财富名列服务器榜首，又或者跟随某个臭名昭著的企业的股票一夜蒸发。
+
+§6这里的一切股票价格都跟实时同步美股市场，所以我强烈推荐你用现实中的股票软件选股和盯盘。股票价格是非常珍贵的数据，我们所提供的数据也仅供参考。
+
+§6如果你不会查股票？那我建议你学起来，毕竟在这里验证你的智商后，你也会迈向亏光家产，哦不，我是说盆满钵满的那一天，你说对吧？
+
+§h=== 股票基础知识 ===
+
+§a• 股票价格：反映市场对公司价值的评估
+§a• 成交量：交易活跃度，量大说明关注度高
+§a• 基本面：公司财务状况、盈利能力等
+§a• 技术面：价格走势、图表形态等
+§a• 消息面：新闻、公告对股价的影响
+
+§h=== 交易策略 ===
+
+§a• 价值投资：买入被低估的优质公司
+§a• 趋势交易：跟随价格趋势进行买卖
+§a• 短线交易：利用短期价格波动获利
+§a• 分散投资：不要把所有资金投入一只股票
+§a• 止损止盈：设定合理的盈亏目标
+
+§h=== 风险提示 ===
+
+§a• 股市有风险，投资需谨慎
+§a• 不要借钱炒股，只用闲钱投资
+§a• 保持冷静，不要被情绪左右
+§a• 学习为主，盈利为辅
+
+§h=== 功能说明 ===
+
+§a• 手续费：每笔交易收取{fee_rate}%%手续费
+§a• 市价单：按当前市场价格立即成交
+§a• 限价单：指定价格，只有价格合适时才成交
+§a• 时间范围：支持查看10分钟、10天、10个月的价格走势
+
+§s提示：建议使用专业股票软件查询最新价格'''
+            
+            help_panel = ActionForm(
+                title="教学指引",
+                content=help_content
+            )
+            
+            help_panel.add_button(
+                "基础知识详解",
+                on_click=lambda sender: self.show_basic_knowledge_panel(sender)
+            )
+            
+            help_panel.add_button(
+                "交易技巧进阶",
+                on_click=lambda sender: self.show_trading_tips_panel(sender)
+            )
+            
+            help_panel.add_button(
+                "风险管理指南",
+                on_click=lambda sender: self.show_risk_management_panel(sender)
+            )
+            
+            help_panel.add_button(
+                "返回主菜单",
+                on_click=lambda sender: self.show_main_panel(sender)
+            )
+            
+            player.send_form(help_panel)
+            
+        except Exception as e:
+            print(f"显示教学指引面板错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            player.send_message("§c显示教学指引时发生错误")
+    
+    def show_basic_knowledge_panel(self, player):
+        """显示基础知识详解面板"""
+        try:
+            content = '''§h=== 股票基础知识详解 ===
+
+§6什么是股票？
+§a股票是公司所有权的凭证，持有股票就是公司的股东。
+
+§6股票价格如何决定？
+§a• 供需关系：买的人多价格涨，卖的人多价格跌
+§a• 公司业绩：盈利增长通常推动股价上涨
+§a• 市场情绪：投资者信心影响买卖决策
+§a• 宏观经济：经济环境对股市整体影响
+
+§6重要概念解释：
+§a• 市值 = 股价 × 总股本
+§a• 市盈率 = 股价 ÷ 每股收益
+§a• 成交量：某时间段内的交易数量
+§a• 换手率：成交量 ÷ 流通股本
+
+§6基本面分析：
+§a• 财务报表：收入、利润、负债等
+§a• 行业地位：公司在行业中的竞争力
+§a• 管理层：公司领导层的能力和诚信
+§a• 发展前景：公司未来增长潜力
+
+§6技术面分析：
+§a• K线图：显示价格走势的图表
+§a• 支撑位：价格下跌时的支撑点
+§a• 阻力位：价格上涨时的阻力点
+§a• 趋势线：价格运行的主要方向
+
+§s记住：投资需要不断学习，理论与实践相结合！'''
+            
+            panel = ActionForm(
+                title="基础知识详解",
+                content=content
+            )
+            
+            panel.add_button(
+                "返回教学指引",
+                on_click=lambda sender: self.show_help_panel(sender)
+            )
+            
+            player.send_form(panel)
+            
+        except Exception as e:
+            print(f"显示基础知识面板错误: {str(e)}")
+            player.send_message("§c显示基础知识时发生错误")
+    
+    def show_trading_tips_panel(self, player):
+        """显示交易技巧进阶面板"""
+        try:
+            content = '''§h=== 交易技巧进阶 ===
+
+§6买入时机选择：
+§a• 低位买入：价格相对较低时买入
+§a• 突破买入：价格突破重要阻力位时
+§a• 回调买入：上涨趋势中的回调机会
+§a• 消息面买入：利好消息发布后
+
+§6卖出时机选择：
+§a• 高位卖出：价格相对较高时卖出
+§a• 止损卖出：价格跌破支撑位时
+§a• 获利了结：达到预期收益目标
+§a• 消息面卖出：利空消息发布后
+
+§6订单类型使用：
+§a• 市价单：急于成交时使用
+§a• 限价单：希望控制成交价格时
+§a• 止损单：自动止损保护资金
+§a• 止盈单：自动获利了结
+
+§6资金管理技巧：
+§a• 分批建仓：不要一次性全仓买入
+§a• 仓位控制：单只股票不超过总资金的30%%
+§a• 加仓策略：盈利时适当加仓
+§a• 减仓策略：亏损时及时减仓
+
+§6心理控制：
+§a• 保持冷静：不要被情绪左右
+§a• 制定计划：按计划执行交易
+§a• 接受亏损：亏损是交易的一部分
+§a• 持续学习：不断提升交易技能
+
+§s记住：没有完美的交易策略，适合自己的才是最好的！'''
+            
+            panel = ActionForm(
+                title="交易技巧进阶",
+                content=content
+            )
+            
+            panel.add_button(
+                "返回教学指引",
+                on_click=lambda sender: self.show_help_panel(sender)
+            )
+            
+            player.send_form(panel)
+            
+        except Exception as e:
+            print(f"显示交易技巧面板错误: {str(e)}")
+            player.send_message("§c显示交易技巧时发生错误")
+    
+    def show_risk_management_panel(self, player):
+        """显示风险管理指南面板"""
+        try:
+            content = '''§h=== 风险管理指南 ===
+
+§c风险警示：
+§4股市有风险，投资需谨慎！本插件仅为模拟交易，请勿将虚拟经验直接应用于真实投资。
+
+§6主要风险类型：
+§a• 市场风险：整体市场下跌的风险
+§a• 个股风险：单只股票价格波动的风险
+§a• 流动性风险：无法及时买卖的风险
+§a• 政策风险：政策变化对股市的影响
+
+§6风险管理原则：
+§a• 分散投资：不要把所有资金投入一只股票
+§a• 控制仓位：单只股票不超过总资金的30%%
+§a• 设置止损：为每笔交易设定最大亏损额度
+§a• 分批建仓：避免一次性全仓买入
+
+§6止损策略：
+§a• 固定止损：设定固定的亏损比例
+§a• 技术止损：基于技术分析设定止损位
+§a• 时间止损：设定持仓时间限制
+§a• 情绪止损：当情绪失控时及时退出
+
+§6资金管理：
+§a• 只用闲钱：不要借钱或使用生活必需资金
+§a• 控制杠杆：避免过度使用杠杆
+§a• 保留现金：始终保持一定的现金储备
+§a• 定期评估：定期评估投资组合风险
+
+§6心理管理：
+§a• 保持理性：不要被贪婪和恐惧控制
+§a• 接受亏损：亏损是交易的一部分
+§a• 控制情绪：避免情绪化交易
+§a• 持续学习：不断提升风险管理能力
+
+§s记住：保护本金比追求高收益更重要！'''
+            
+            panel = ActionForm(
+                title="风险管理指南",
+                content=content
+            )
+            
+            panel.add_button(
+                "返回教学指引",
+                on_click=lambda sender: self.show_help_panel(sender)
+            )
+            
+            player.send_form(panel)
+            
+        except Exception as e:
+            print(f"显示风险管理面板错误: {str(e)}")
+            player.send_message("§c显示风险管理时发生错误")
 

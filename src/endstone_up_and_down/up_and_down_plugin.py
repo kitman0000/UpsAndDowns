@@ -3,6 +3,7 @@ import time
 from decimal import *
 import threading
 import random
+from typing import Union
 
 
 from endstone.command import Command, CommandSender
@@ -116,15 +117,11 @@ class UpAndDownPlugin(Plugin):
         pass
         # self.logger.info("on_disable is called!")
 
-    def on_command(self, sender: CommandSender, command: Command, args: list[str]) -> bool:
-        '''
-            Command router
-        '''
-    
+    def execute_command(self, sender: CommandSender, args: list[str], return_value:bool, callback=None, callback_args=None):
         def command_executor():
             try:
                 # 处理UI命令（不需要线程处理）
-                if args and args[0] == "ui":
+                if args[0] == "ui":
                     player = self.server.get_player(sender.name)
                     if player and hasattr(player, 'send_form'):
                         self.ui_manager.show_main_panel(player)
@@ -150,7 +147,6 @@ class UpAndDownPlugin(Plugin):
                     "help": self.help,
                     "orders": self.show_orders,
                     "shares": self.show_shares
-                    
                 }
                 
                 require_lock_command_list = ['buy', 'sell', 'transferin', 'transferout']
@@ -161,11 +157,18 @@ class UpAndDownPlugin(Plugin):
                     player_lock = self.lock_manager.get_player_lock(str(xuid))
                     try:
                         with LockWithTimeout(player_lock, 1):
-                            command_func(xuid, sender, args)
+                            rtn = command_func(xuid, sender, args)
                     except LockException as ex:
                         sender.send_error_message("当前账号有其他股票操作正在进行，请稍候操作")
                 else:
-                    command_func(xuid, sender, args)
+                    rtn = command_func(xuid, sender, args)
+                
+                if return_value:
+                    self.server.scheduler.run_task(
+                        self,
+                        lambda: callback(rtn, sender, callback_args),
+                        delay=0
+                    )
                     
                 
             except Exception as e:
@@ -184,12 +187,21 @@ class UpAndDownPlugin(Plugin):
                 sender.send_message("Full Traceback:")
                 sender.send_message(f"{full_traceback}")
 
-        # UI命令不需要线程处理，直接执行
-        if args and args[0] == "ui":
+        if return_value and callback == None:
+            raise Exception("Callback function must not be None if return value is true, Fool!")
+
+        if args[0] == "ui":
             command_executor()
         else:
             thread = threading.Thread(target=command_executor)
             thread.start()
+
+    def on_command(self, sender: CommandSender, command: Command, args: list[str]) -> bool:
+        '''
+            Command router
+        '''
+        self.execute_command(sender, args, False)
+
         
 
     # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -330,9 +342,17 @@ class UpAndDownPlugin(Plugin):
             print(f"Transfer out failed for player {xuid}: {str(e)}")
         
         
-    def buy_stock(self, xuid, sender, args):
+    def buy_stock(self, xuid, sender, args) -> Union[bool, str]:
         '''
             Buy stock
+
+            args[0] buy
+            args[1] stock_name
+            args[2] share
+            args[3] [price]
+
+            Return:
+            True/False, Message
         '''
         
         player = self.server.get_player(sender.name)
@@ -344,8 +364,9 @@ class UpAndDownPlugin(Plugin):
         
         market_price, tradeable = self.get_stock_last_price(stock_name)
         if tradeable == None:
-            sender.send_message(f"你输入了错误的股票名或该股票市场尚不支持:{args[1]}")
-            return
+            message = f"你输入了错误的股票名或该股票市场尚不支持:{args[1]}"
+            sender.send_message(message)
+            return False, message
         
         if len(args) == 4:
             price = Decimal(str(args[3]))
@@ -360,24 +381,29 @@ class UpAndDownPlugin(Plugin):
         order_id = self.stock_dao.create_order(xuid, stock_name, share, type)
         sender.send_message(f"订单创建成功，订单号: {order_id} 类型: {self.order_type_dict[type]} {market_type}")
         
-
         if price < market_price:
-            sender.send_message(f"股票购买失败，当前市场价:{market_price}, 没有人愿意按您的报价{price}元交易")
-            return
-        player_balance = self.economy_plugin.get_player_money(player)
+            message = f"股票购买失败，当前市场价:{market_price}, 没有人愿意按您的报价{price}元交易"
+            sender.send_message(message)
+            return False, message
+        player_balance = self.stock_dao.get_balance(xuid)
         
         share = Decimal(str(share))
-        tax = price * share * Decimal('0.02')
+        fee_rate = Decimal(str(self.setting_manager.get_trading_fee_rate() / 100))
+        tax = price * share * fee_rate
         total_price = price * share + tax
         if player_balance < total_price:
-            sender.send_message(f"您的经济实力似乎不足以支付 {total_price} 元")
-            return
+            message = f"您的经济实力似乎不足以支付 {total_price} 元"
+            sender.send_message(message)
+            return False, message
         self.stock_dao.decrease_balance(xuid, total_price)
         self.stock_dao.buy(order_id, stock_name, xuid, share, price, tax, total_price)
-        sender.send_message(f"股票购买成功，总计:{total_price}元")    
+
+        message = f"股票购买成功，总计:{total_price}元"
+        sender.send_message(message)
+        return True, message
             
             
-    def sell_stock(self, xuid, sender, args):
+    def sell_stock(self, xuid, sender, args) -> Union[bool, str]:
         stock_name = args[1]
         share = Decimal(args[2])
         
@@ -387,8 +413,9 @@ class UpAndDownPlugin(Plugin):
         # 获取股票当前价格和可交易状态
         market_price, tradeable = self.get_stock_last_price(stock_name)
         if tradeable is None:
-            sender.send_message(f"你输入了错误的股票名或该股票市场尚不支持:{args[1]}")
-            return
+            message = f"你输入了错误的股票名或该股票市场尚不支持:{args[1]}"
+            sender.send_message(message)
+            return False, message
         
         # 解析价格参数（限价单或市价单）
         if len(args) == 4:
@@ -402,8 +429,9 @@ class UpAndDownPlugin(Plugin):
         # 检查玩家持股数量
         current_holding = self.stock_dao.get_player_stock_holding(xuid, stock_name)
         if current_holding < Decimal(share):
-            sender.send_message(f"您的持股不足，当前持有 {current_holding} 股")
-            return
+            message = f"您的持股不足，当前持有 {current_holding} 股"
+            sender.send_message(message)
+            return False, message
         
         
         # 创建出售订单
@@ -414,24 +442,34 @@ class UpAndDownPlugin(Plugin):
 
         # 检查市场价格是否满足限价要求
         if market_price < price:
-            sender.send_message(
-                f"股票出售失败，当前市场价:{market_price}, "
-                f"没有人愿意按您的报价{price}元购买"
-            )
-            return
+            message = f"股票出售失败，当前市场价:{market_price}, 没有人愿意按您的报价{price}元购买"
+            sender.send_message(message)
+            return False, message
         
-        # 计算总收入（扣除2%手续费）
+        # 计算总收入（扣除手续费）
         total_price = price * Decimal(share)
-        tax = total_price * Decimal('0.02')
+        fee_rate = Decimal(str(self.setting_manager.get_trading_fee_rate() / 100))
+        tax = total_price * fee_rate
         net_revenue = total_price - tax
         
         # 执行交易
         self.stock_dao.sell(order_id, stock_name, xuid, share, price, tax, total_price)
         self.stock_dao.increase_balance(xuid, net_revenue)
-        sender.send_message(f"股票出售成功，总计:{net_revenue}元")  
+
+        message = f"股票出售成功，总计:{net_revenue}元"
+        sender.send_message(message)
+
+        return True, message
             
     def help(self, xuid, sender, args):
-        help_str = '''
+        """显示帮助信息 - 使用UI形式"""
+        player = self.server.get_player(sender.name)
+        if player and hasattr(player, 'send_form'):
+            # 如果玩家在线且有UI支持，显示UI帮助
+            self.ui_manager.show_help_panel(player)
+        else:
+            # 如果无法显示UI，回退到文本消息
+            help_str = '''
 §c警告：本插件为模拟美股交易插件，您的所有操作均为模拟操作，不会产生真实交易。您只能将股票买卖的利润转为游戏币，您永远无法将其提现为现实中可交易的货币。
 
 §6欢迎来到"荣辱浮沉 (Ups and Downs)" 股票插件，在这里，你可以让自己的财富名列服务器榜首，又或者跟随某个臭名昭著的企业的股票一夜蒸发。
@@ -456,8 +494,8 @@ class UpAndDownPlugin(Plugin):
 §s提示：由于屏幕大小限制，↑↑↑请向上滚动阅读完整内容↑↑↑
         
         '''
-        
-        sender.send_message(help_str)
+            
+            sender.send_message(help_str)
         
     def show_orders(self, xuid, sender, args):
         player = self.server.get_player(sender.name)

@@ -1347,6 +1347,7 @@ class UIManager:
                     bottom_5 = sorted_data[-5:]
                     bottom_5.reverse()  # 从最惨的开始
                     
+                    rank = -1
                     for idx, data in enumerate(bottom_5, 1):
                         player_name = self._get_player_name(data['player_xuid'])
                         profit_loss = data['absolute_profit_loss']
@@ -1360,13 +1361,12 @@ class UIManager:
                         else:
                             sign = ""
                         
-                        # 修正排名计算：倒数第1名应该是总排名最后一名
-                        actual_rank = len(sorted_data) - len(bottom_5) + idx
-                        content += f"#{actual_rank} {player_name}\n"
+                        content += f"#{-rank} {player_name}\n"
                         content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
                         content += f"   总财富: ${data['total_wealth']:.2f}\n"
                         content += f"   (持仓: ${data['holdings_value']:.2f} + 余额: ${data['balance']:.2f})\n"
                         content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
+                        rank -= 1
                     
                     # 在主线程显示UI
                     def show_panel():
@@ -1492,6 +1492,7 @@ class UIManager:
                     content += "§l§7倒数5名 (接盘侠榜)§r\n\n"
                     
                     # 显示倒数5名
+                    rank = -1
                     bottom_5 = sorted_data[-5:]
                     bottom_5.reverse()  # 从最惨的开始
                     
@@ -1509,11 +1510,10 @@ class UIManager:
                         else:
                             sign = ""
                         
-                        # 修正排名计算：倒数第1名应该是总排名最后一名
-                        actual_rank = len(sorted_data) - len(bottom_5) + idx
-                        content += f"#{actual_rank} {player_name}\n"
+                        content += f"#{rank} {player_name}\n"
                         content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
                         content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
+                        rank -= 1
                     
                     # 在主线程显示UI
                     def show_panel():

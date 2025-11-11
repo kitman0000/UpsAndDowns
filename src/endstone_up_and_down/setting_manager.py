@@ -1,4 +1,4 @@
-"""
+﻿"""
 股票插件配置管理器
 """
 import os
@@ -63,7 +63,7 @@ trading_fee_rate=2.0
         
         # 同时加载默认值到内存
         StockSettingManager.setting_dict["proxy"] = "127.0.0.1:5555"
-        StockSettingManager.setting_dict["enable_proxy"] = "true"
+        StockSettingManager.setting_dict["enable_proxy"] = "false"
         StockSettingManager.setting_dict["update_interval"] = "60"
         StockSettingManager.setting_dict["trading_fee_rate"] = "2.0"
     

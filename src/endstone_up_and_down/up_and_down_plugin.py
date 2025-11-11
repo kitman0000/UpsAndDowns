@@ -73,7 +73,8 @@ class UpAndDownPlugin(Plugin):
             self.logger.info(f"§e已启用代理: {proxy_address}")
         else:
             self.logger.info("§e未启用代理")
-        
+            yf.set_config(proxy=None)
+            
         # 测试 yfinance 连接
         try:
             test_price, tradeable = self.get_stock_last_price("NIO")

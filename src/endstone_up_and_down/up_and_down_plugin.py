@@ -73,6 +73,16 @@ class UpAndDownPlugin(Plugin):
         else:
             self.logger.info("§e未启用代理")
         
+        # 测试 yfinance 连接
+        try:
+            test_price, tradeable = self.get_stock_last_price("NIO")
+            if test_price:
+                self.logger.info(f"§a[成功] yfinance连接测试成功！NIO当前股票价格: ${test_price}")
+            else:
+                self.logger.warning("§c[失败] yfinance连接测试失败：无法获取NIO的股票价格")
+        except Exception as e:
+            self.logger.error(f"§c[错误] yfinance连接测试失败: {str(e)}")
+        
         # 设置数据库路径
         import os
         db_path = os.path.join(self.MAIN_PATH, "up_and_down.db")
@@ -80,7 +90,6 @@ class UpAndDownPlugin(Plugin):
         self.database_manager = DatabaseManager(db_path)
         self.stock_dao = StockDao(self.database_manager)
         self.stock_dao.init_tables()
-        self.economy_plugin = self.server.plugin_manager.get_plugin('arc_core')
         self.lock_manager = LockManager()
         
         # 初始化收藏夹管理器、玩家设置管理器和UI管理器
@@ -94,7 +103,7 @@ class UpAndDownPlugin(Plugin):
         
 
     def on_enable(self) -> None:
-        pass
+        self.economy_plugin = self.server.plugin_manager.get_plugin('arc_core')
         # self.logger.info("on_enable is called!")
         # self.get_command("python").executor = PythonCommandExecutor()
 

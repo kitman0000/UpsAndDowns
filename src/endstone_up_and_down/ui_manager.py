@@ -1184,14 +1184,7 @@ class UIManager:
                 else:
                     sign = ""
                 
-                if idx == 1:
-                    medal = "🥇"
-                elif idx == 2:
-                    medal = "🥈"
-                elif idx == 3:
-                    medal = "🥉"
-                else:
-                    medal = f"#{idx}"
+                medal = f"#{idx}"
                 
                 content += f"{medal} {player_name}\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
@@ -1218,9 +1211,8 @@ class UIManager:
                 else:
                     sign = ""
                 
-                # 修正排名计算：倒数第1名应该是总排名最后一名
-                actual_rank = len(sorted_data) - len(bottom_5) + idx
-                content += f"#{actual_rank} {player_name}\n"
+                # 显示倒数排名：#-1, #-2, #-3, #-4, #-5
+                content += f"#-{idx} {player_name}\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
                 content += f"   总财富: ${data['total_wealth']:.2f}\n"
                 content += f"   (持仓: ${data['holdings_value']:.2f} + 余额: ${data['balance']:.2f})\n"
@@ -1302,11 +1294,11 @@ class UIManager:
                     sign = ""
                 
                 if idx == 1:
-                    medal = "🥇"
+                    medal = "#1"
                 elif idx == 2:
-                    medal = "🥈"
+                    medal = "#2"
                 elif idx == 3:
-                    medal = "🥉"
+                    medal = "#3"
                 else:
                     medal = f"#{idx}"
                 
@@ -1334,9 +1326,8 @@ class UIManager:
                 else:
                     sign = ""
                 
-                # 修正排名计算：倒数第1名应该是总排名最后一名
-                actual_rank = len(sorted_data) - len(bottom_5) + idx
-                content += f"#{actual_rank} {player_name}\n"
+                # 显示倒数排名：#-1, #-2, #-3, #-4, #-5
+                content += f"#-{idx} {player_name}\n"
                 content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
             

@@ -677,22 +677,25 @@ class UIManager:
         # 返回股票详情
         self.show_stock_detail_panel(player, stock_name)
     
-    def _show_price_history_panel(self, player, stock_name: str):
+    def _show_price_history_panel(self, player, stock_name: str, unit="day"):
         """显示价格走势面板"""
         player.send_message(f"正在查询 {stock_name} 的价格走势...")
         
         # 使用线程执行查询，然后用调度器在主线程显示UI
         import threading
         
-        def show_history():
+        def show_history(unit):
             try:
                 xuid = player.xuid
-                price_list, tradeable = self.plugin.get_stock_last_price(
-                    stock_name, 
-                    period="1mo", 
-                    interval="1d", 
-                    return_period=True
-                )
+                if unit == "minute":
+                    price_list, tradeable = self.get_stock_last_price(stock_name, return_period=True)
+                    unit_zh = "10分钟"
+                elif unit == "day":
+                    price_list, tradeable = self.get_stock_last_price(stock_name, period="1mo", interval="1d", return_period=True)
+                    unit_zh = "10天"
+                elif unit == "month":
+                    price_list, tradeable = self.get_stock_last_price(stock_name, period="1y",interval="1mo", return_period=True)
+                    unit_zh = "10个月"
                 
                 if price_list is None:
                     # 使用调度器在主线程发送消息
@@ -705,7 +708,7 @@ class UIManager:
                 
                 # 构建价格走势内容
                 content = f"=== {stock_name} 价格走势 ===\n\n"
-                content += f"近10个交易日价格变化:\n\n"
+                content += f"近{unit_zh}价格变化:\n\n"
                 
                 price_list = price_list[-11:]  # 取最后11天（包括基准日）
                 
@@ -720,11 +723,14 @@ class UIManager:
                     
                     # 格式化显示
                     if change > 0:
-                        content += f"第{idx}天: ${curr_price:.2f} {color}▲+${abs(change):.2f} (+{change_percent:.2f}%)§r\n"
+                        content += f"${curr_price:.2f} {color}▲+${abs(change):.2f} (+{change_percent:.2f}%)§r\n"
                     elif change < 0:
-                        content += f"第{idx}天: ${curr_price:.2f} {color}▼${abs(change):.2f} ({change_percent:.2f}%)§r\n"
+                        content += f"${curr_price:.2f} {color}▼${abs(change):.2f} ({change_percent:.2f}%)§r\n"
                     else:
-                        content += f"第{idx}天: ${curr_price:.2f} §7━ ${abs(change):.2f} (0.00%%)§r\n"
+                        content += f"${curr_price:.2f} §7━ ${abs(change):.2f} (0.00%%)§r\n"
+
+                if len(price_list) == 0:
+                    content += "暂无数据，请尝试切换时间范围\n"
                 
                 content += f"\n§7提示: 建议使用专业股票软件查询最新价格§r"
                 
@@ -733,6 +739,23 @@ class UIManager:
                     history_panel = ActionForm(
                         title=f"{stock_name} 价格走势",
                         content=content
+                    )
+
+                    if unit == "minute":
+                        next_unit = "day"
+                        next_unit_zh = "10天"
+                    elif unit == "day":
+                        next_unit = "month"
+                        next_unit_zh = "10个月"
+                    elif unit == "month":
+                        next_unit = "minute"
+                        next_unit_zh = "10分钟"
+                    else:
+                        raise Exception(f"Unknown unit: {unit}")
+
+                    history_panel.add_button(
+                        f"切换近{next_unit_zh}交易价格",
+                        on_click=lambda sender: self._show_price_history_panel(sender, stock_name, unit=next_unit)
                     )
                     
                     history_panel.add_button(
@@ -759,7 +782,7 @@ class UIManager:
                     delay=0
                 )
         
-        thread = threading.Thread(target=show_history)
+        thread = threading.Thread(target=show_history, args=["day"])
         thread.start()
     
     # ==================== 买入面板 ====================

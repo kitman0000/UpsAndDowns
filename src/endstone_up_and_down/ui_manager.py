@@ -688,13 +688,13 @@ class UIManager:
             try:
                 xuid = player.xuid
                 if unit == "minute":
-                    price_list, tradeable = self.get_stock_last_price(stock_name, return_period=True)
+                    price_list, tradeable = self.plugin.get_stock_last_price(stock_name, return_period=True)
                     unit_zh = "10分钟"
                 elif unit == "day":
-                    price_list, tradeable = self.get_stock_last_price(stock_name, period="1mo", interval="1d", return_period=True)
+                    price_list, tradeable = self.plugin.get_stock_last_price(stock_name, period="1mo", interval="1d", return_period=True)
                     unit_zh = "10天"
                 elif unit == "month":
-                    price_list, tradeable = self.get_stock_last_price(stock_name, period="1y",interval="1mo", return_period=True)
+                    price_list, tradeable = self.plugin.get_stock_last_price(stock_name, period="1y",interval="1mo", return_period=True)
                     unit_zh = "10个月"
                 
                 if price_list is None:

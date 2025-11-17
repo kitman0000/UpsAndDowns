@@ -782,7 +782,7 @@ class UIManager:
                     delay=0
                 )
         
-        thread = threading.Thread(target=show_history, args=["day"])
+        thread = threading.Thread(target=show_history, args=[unit])
         thread.start()
     
     # ==================== 买入面板 ====================

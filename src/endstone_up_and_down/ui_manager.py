@@ -1316,111 +1316,111 @@ class UIManager:
             player.send_message("显示排行榜菜单时发生错误")
     
 
-def show_absolute_leaderboard(self, player):
-    """显示绝对盈亏排行榜（从插件获取数据）"""
-    try:
-        xuid = player.xuid
-        
-        # 从插件获取排行榜数据
-        stored_data = self.plugin.get_leaderboard_data(is_absolute=True)
-        
-        if not stored_data:
-            def show_no_data():
-                no_data_form = ActionForm(
-                    title="绝对盈亏榜",
-                    content="暂无数据",
-                    on_close=lambda sender: self.show_leaderboard_menu(sender)
+    def show_absolute_leaderboard(self, player):
+        """显示绝对盈亏排行榜（从插件获取数据）"""
+        try:
+            xuid = player.xuid
+            
+            # 从插件获取排行榜数据
+            stored_data = self.plugin.get_leaderboard_data(is_absolute=True)
+            
+            if not stored_data:
+                def show_no_data():
+                    no_data_form = ActionForm(
+                        title="绝对盈亏榜",
+                        content="暂无数据",
+                        on_close=lambda sender: self.show_leaderboard_menu(sender)
+                    )
+                    player.send_form(no_data_form)
+                
+                self.plugin.server.scheduler.run_task(
+                    self.plugin,
+                    show_no_data,
+                    delay=0
                 )
-                player.send_form(no_data_form)
+                return
+            
+            # 获取最后更新时间
+            last_updated = stored_data[0]['last_updated'] if stored_data else time.time()
+            
+            # 获取玩家颜色配置
+            up_color = self.plugin.player_settings_manager.get_up_color(xuid)
+            down_color = self.plugin.player_settings_manager.get_down_color(xuid)
+            
+            # 构建内容
+            content = f"=== 绝对盈亏排行榜 (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')} ===\n\n"
+            
+            # 显示前5名
+            for idx, data in enumerate(stored_data[:5], 1):
+                player_name = self._get_player_name(data['player_xuid'])
+                profit_loss = data['absolute_profit_loss']
+                
+                # 使用统一的颜色逻辑
+                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                if profit_loss > 0:
+                    sign = "+"
+                elif profit_loss < 0:
+                    sign = "-"
+                else:
+                    sign = ""
+                
+                content += f"#{idx} {player_name}\n"
+                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
+                content += f"   总财富: ${data['total_wealth']:.2f}\n"
+                content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
+            
+            content += "§l§7倒数5名 (韭菜榜)§r\n\n"
+            
+            # 显示倒数5名
+            bottom_5 = stored_data[-5:]
+            for idx, data in enumerate(bottom_5, 1):
+                player_name = self._get_player_name(data['player_xuid'])
+                profit_loss = data['absolute_profit_loss']
+                
+                # 使用统一的颜色逻辑
+                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                if profit_loss > 0:
+                    sign = "+"
+                elif profit_loss < 0:
+                    sign = "-"
+                else:
+                    sign = ""
+                
+                # 使用存储的排名
+                content += f"#{data['rank']} {player_name}\n"
+                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
+                content += f"   总财富: ${data['total_wealth']:.2f}\n"
+                content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
+            
+            # 在主线程显示UI
+            def show_panel():
+                leaderboard_panel = ActionForm(
+                    title="绝对盈亏榜",
+                    content=content
+                )
+                
+                leaderboard_panel.add_button(
+                    "返回排行榜菜单",
+                    on_click=lambda sender: self.show_leaderboard_menu(sender)
+                )
+                
+                player.send_form(leaderboard_panel)
             
             self.plugin.server.scheduler.run_task(
                 self.plugin,
-                show_no_data,
+                show_panel,
                 delay=0
             )
-            return
-        
-        # 获取最后更新时间
-        last_updated = stored_data[0]['last_updated'] if stored_data else time.time()
-        
-        # 获取玩家颜色配置
-        up_color = self.plugin.player_settings_manager.get_up_color(xuid)
-        down_color = self.plugin.player_settings_manager.get_down_color(xuid)
-        
-        # 构建内容
-        content = f"=== 绝对盈亏排行榜 (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')} ===\n\n"
-        
-        # 显示前5名
-        for idx, data in enumerate(stored_data[:5], 1):
-            player_name = self._get_player_name(data['player_xuid'])
-            profit_loss = data['absolute_profit_loss']
             
-            # 使用统一的颜色逻辑
-            color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-            if profit_loss > 0:
-                sign = "+"
-            elif profit_loss < 0:
-                sign = "-"
-            else:
-                sign = ""
-            
-            content += f"#{idx} {player_name}\n"
-            content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
-            content += f"   总财富: ${data['total_wealth']:.2f}\n"
-            content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
-        
-        content += "§l§7倒数5名 (韭菜榜)§r\n\n"
-        
-        # 显示倒数5名
-        bottom_5 = stored_data[-5:]
-        for idx, data in enumerate(bottom_5, 1):
-            player_name = self._get_player_name(data['player_xuid'])
-            profit_loss = data['absolute_profit_loss']
-            
-            # 使用统一的颜色逻辑
-            color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-            if profit_loss > 0:
-                sign = "+"
-            elif profit_loss < 0:
-                sign = "-"
-            else:
-                sign = ""
-            
-            # 使用存储的排名
-            content += f"#{data['rank']} {player_name}\n"
-            content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
-            content += f"   总财富: ${data['total_wealth']:.2f}\n"
-            content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
-        
-        # 在主线程显示UI
-        def show_panel():
-            leaderboard_panel = ActionForm(
-                title="绝对盈亏榜",
-                content=content
+        except Exception as e:
+            print(f"加载绝对盈亏排行榜数据错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            self.plugin.server.scheduler.run_task(
+                self.plugin,
+                lambda: player.send_message("显示绝对盈亏排行榜时发生错误"),
+                delay=0
             )
-            
-            leaderboard_panel.add_button(
-                "返回排行榜菜单",
-                on_click=lambda sender: self.show_leaderboard_menu(sender)
-            )
-            
-            player.send_form(leaderboard_panel)
-        
-        self.plugin.server.scheduler.run_task(
-            self.plugin,
-            show_panel,
-            delay=0
-        )
-        
-    except Exception as e:
-        print(f"加载绝对盈亏排行榜数据错误: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        self.plugin.server.scheduler.run_task(
-            self.plugin,
-            lambda: player.send_message("显示绝对盈亏排行榜时发生错误"),
-            delay=0
-        )
 
 
     def show_relative_leaderboard(self, player):

@@ -383,11 +383,8 @@ class StockDao:
                 if current_price:
                     holdings_value += current_price * share
             
-            # 当前总财富 = 持仓市值 - 所有购买股票的成本 + 所有出售股票的收入
-            total_wealth = holdings_value - total_buy + total_sell
-            
-            # 绝对盈亏 = 当前总财富 - 累计投入
-            absolute_profit_loss = total_wealth - total_buy
+            # 当前盈利 = 持仓市值 - 所有购买股票的成本 + 所有出售股票的收入
+            absolute_profit_loss = holdings_value - total_buy + total_sell
             
             # 相对盈亏（百分比） = 绝对盈亏 / 累计投入 * 100
             if total_buy > 0:
@@ -397,7 +394,7 @@ class StockDao:
             
             players_data.append({
                 'player_xuid': player_xuid,
-                'total_wealth': float(total_wealth),
+                'total_wealth': float(holdings_value) + float(balance),
                 'holdings_value': float(holdings_value),
                 'balance': float(balance),
                 'total_buy': float(total_buy),

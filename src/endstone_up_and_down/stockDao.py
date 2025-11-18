@@ -35,17 +35,23 @@ class StockDao:
         '''Player account table'''
         self.database_manager.create_table("tb_player_account",{
             "player_xuid": "TEXT",
-            "balance": "float",
-            "total_investment": "float DEFAULT 0"
+            "balance": "float"
         })
-        
-        # 为已有账户添加 total_investment 字段（如果不存在）
-        try:
-            self.database_manager.execute(
-                "ALTER TABLE tb_player_account ADD COLUMN total_investment float DEFAULT 0"
-            )
-        except:
-            pass  # 字段已存在，忽略错误
+            
+        # Leaderboard table
+        self.database_manager.create_table("tb_leaderboard", {
+            "id": "INTEGER primary key autoincrement",
+            "player_xuid": "TEXT",
+            "total_wealth": "float",
+            "balance": "float",
+            "holdings_value": "float",
+            "total_investment": "float",
+            "absolute_profit_loss": "float",
+            "relative_profit_loss": "float",
+            "is_absolute": "BOOLEAN",
+            "last_updated": "float",
+            "rank": "int"
+        })
         
         
     def create_order(self, xuid, stock_name, share, type):
@@ -59,9 +65,11 @@ class StockDao:
             "create_time": time.time(),
         })
 
-        order_id = self.database_manager.query_one(
-            f'SELECT id FROM tb_player_order WHERE player_xuid = "{xuid}" ORDER BY id DESC LIMIT 1 '
-        )["id"]
+        result = self.database_manager.query_one(
+            "SELECT id FROM tb_player_order WHERE player_xuid = ? ORDER BY id DESC LIMIT 1",
+            (xuid,)
+        )
+        order_id = result["id"] if result else None
         
         return order_id
 
@@ -69,7 +77,7 @@ class StockDao:
         stock_name = stock_name.upper()
         
         # Buy
-        exists_share= self.database_manager.query_one("SELECT * FROM tb_player_stock WHERE player_xuid = ? AND stock_name = ?", (xuid, stock_name))
+        exists_share = self.database_manager.query_one("SELECT * FROM tb_player_stock WHERE player_xuid = ? AND stock_name = ?", (xuid, stock_name))
         if exists_share == None:
             self.database_manager.insert("tb_player_stock", {
                 "player_xuid": xuid,
@@ -153,27 +161,15 @@ class StockDao:
         
         if account == None:
             # 新账户
-            total_investment = amount if is_transfer_in else 0
             self.database_manager.insert("tb_player_account", {
                 "player_xuid": xuid,
-                "balance": amount,
-                "total_investment": total_investment
+                "balance": amount
             })
         else:
             new_balance = float(Decimal(str(account["balance"])) + Decimal(str(amount)))
-            
-            # 如果是转入操作，增加累计投入
-            if is_transfer_in:
-                current_investment = account.get("total_investment", 0) or 0
-                new_investment = float(Decimal(str(current_investment)) + Decimal(str(amount)))
-                self.database_manager.update("tb_player_account", {
-                    "balance": new_balance,
-                    "total_investment": new_investment
-                }, f"player_xuid='{xuid}'")
-            else:
-                self.database_manager.update("tb_player_account", {
-                    "balance": new_balance
-                }, f"player_xuid='{xuid}'")
+            self.database_manager.update("tb_player_account", {
+                "balance": new_balance
+            }, f"player_xuid='{xuid}'")
 
 
     def decrease_balance(self, xuid, amount, is_transfer_out=False):
@@ -188,21 +184,9 @@ class StockDao:
             raise Exception("User not found")
         else:
             new_balance = float(Decimal(str(account["balance"])) - Decimal(str(amount)))
-            
-            # 如果是转出操作，减少累计投入
-            if is_transfer_out:
-                current_investment = account.get("total_investment", 0) or 0
-                new_investment = float(Decimal(str(current_investment)) - Decimal(str(amount)))
-                # 确保累计投入不为负数
-                new_investment = max(0, new_investment)
-                self.database_manager.update("tb_player_account", {
-                    "balance": new_balance,
-                    "total_investment": new_investment
-                }, f"player_xuid='{xuid}'")
-            else:
-                self.database_manager.update("tb_player_account", {
-                    "balance": new_balance
-                }, f"player_xuid='{xuid}'")
+            self.database_manager.update("tb_player_account", {
+                "balance": new_balance
+            }, f"player_xuid='{xuid}'")
             
             
     def get_player_stock_holding(self, xuid, stock_name):
@@ -305,6 +289,19 @@ class StockDao:
         
         return float(average_cost)
     
+
+    def get_leaderboard_cached_data(self, is_absolute):
+        # Get current timestamp
+        current_time = time.time()
+        
+        # Get data from cache if it's fresh enough (less than 1 hour old)
+        cached_data = self.database_manager.query_all(
+            "SELECT * FROM tb_leaderboard WHERE is_absolute = ? AND last_updated > ? ORDER BY rank LIMIT 10",
+            (is_absolute, current_time - 3600)
+        )
+
+        return cached_data
+    
     
     def get_all_players_profit_loss(self, get_stock_price_func):
         """
@@ -314,7 +311,7 @@ class StockDao:
         """
         # 获取所有有账户的玩家
         all_accounts = self.database_manager.query_all(
-            "SELECT player_xuid, balance, total_investment FROM tb_player_account"
+            "SELECT player_xuid, balance FROM tb_player_account"
         )
         
         if not all_accounts:
@@ -325,7 +322,26 @@ class StockDao:
         for account in all_accounts:
             player_xuid = account['player_xuid']
             balance = Decimal(str(account['balance']))
-            total_investment = Decimal(str(account.get('total_investment', 0) or 0))
+            
+            # 实时计算累计投入：通过查询买入订单的总成本
+            buy_orders = self.database_manager.query_all(
+                """
+                SELECT share, single_price, tax 
+                FROM tb_player_order 
+                WHERE player_xuid = ? 
+                AND (type = 'buy_flex' OR type = 'buy_fix')
+                AND total IS NOT NULL
+                """,
+                (player_xuid,)
+            )
+            
+            total_investment = Decimal('0')
+            for order in buy_orders:
+                # 累计投入 = 买入总金额 + 手续费
+                share = Decimal(str(order['share']))
+                price = Decimal(str(order['single_price']))
+                tax = Decimal(str(order['tax'])) if order['tax'] else Decimal('0')
+                total_investment += (share * price) + tax
             
             # 如果累计投入为0，跳过（没有实际投资过）
             if total_investment == 0:

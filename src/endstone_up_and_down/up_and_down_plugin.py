@@ -95,18 +95,40 @@ class UpAndDownPlugin(Plugin):
         
 
     def on_enable(self) -> None:
-        pass
-        # self.logger.info("on_enable is called!")
-        # self.get_command("python").executor = PythonCommandExecutor()
-
-        # self.register_events(self)  # register event listeners defined directly in Plugin class
-        # self.register_events(ExampleListener(self))  # you can also register event listeners in a separate class
-
-        # self.server.scheduler.run_task(self, self.log_time, delay=0, period=20 * 1)  # every second
+        # Schedule leaderboard update every 30 minutes
+        self.server.scheduler.run_task(
+            self, 
+            self.update_leaderboard, 
+            delay=0, 
+            period=20 * 60 * 30
+        )
+        
 
     def on_disable(self) -> None:
         pass
-        # self.logger.info("on_disable is called!")
+
+    def get_leaderboard_data(self, is_absolute=True):
+        """Get leaderboard data from database
+        Args:
+            is_absolute: True for absolute leaderboard, False for relative
+        Returns:
+            List of player data or empty list
+        """
+        try:
+            cached_data = self.stock_dao.get_leaderboard_cached_data(is_absolute)
+            if len(cached_data) > 0:
+                return cached_data
+                
+            else:
+                return None
+        except Exception as e:
+            self.logger.error(f"Failed to get leaderboard data: {str(e)}")
+            return []
+            
+        except Exception as e:
+            self.logger.error(f"Leaderboard update failed: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
 
     def execute_command(self, sender: CommandSender, args: list[str], return_value:bool, callback=None, callback_args=None):
         def command_executor():

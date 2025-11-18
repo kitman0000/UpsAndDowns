@@ -41,7 +41,7 @@ class UIManager:
                     balance = self.plugin.stock_dao.get_balance(xuid)
                     
                     cached_player_data = self.plugin.stock_dao.get_cached_single_player_profit_loss(xuid)
-                    total_market_value = cached_player_data['holding_value']
+                    total_market_value = cached_player_data['holdings_value']
                     total_wealth = cached_player_data['total_wealth']
                     relative_profit_loss = cached_player_data['relative_profit_loss']
                     absolute_profit_loss = cached_player_data['absolute_profit_loss']

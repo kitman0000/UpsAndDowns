@@ -43,9 +43,10 @@ class StockDao:
             "id": "INTEGER primary key autoincrement",
             "player_xuid": "TEXT",
             "total_wealth": "float",
-            "balance": "float",
             "holdings_value": "float",
-            "total_investment": "float",
+            "balance": "float",
+            "total_buy": "float",
+            "total_sell": "float",
             "absolute_profit_loss": "float",
             "relative_profit_loss": "float",
             "is_absolute": "BOOLEAN",
@@ -334,17 +335,36 @@ class StockDao:
                 """,
                 (player_xuid,)
             )
+
+            sell_orders = self.database_manager.query_all(
+                """
+                SELECT share, single_price, tax 
+                FROM tb_player_order 
+                WHERE player_xuid = ? 
+                AND (type = 'sell_flex' OR type = 'sell_fix')
+                AND total IS NOT NULL
+                """,
+                (player_xuid,)
+            )
             
-            total_investment = Decimal('0')
+            total_buy = Decimal('0')
             for order in buy_orders:
-                # 累计投入 = 买入总金额 + 手续费
+                # 累计买入 = 买入总金额 + 手续费
                 share = Decimal(str(order['share']))
                 price = Decimal(str(order['single_price']))
                 tax = Decimal(str(order['tax'])) if order['tax'] else Decimal('0')
-                total_investment += (share * price) + tax
+                total_buy += (share * price) + tax
+
+            total_sell = Decimal('0')
+            for order in sell_orders:
+                # 累计卖出 = 买入总金额 + 手续费
+                share = Decimal(str(order['share']))
+                price = Decimal(str(order['single_price']))
+                tax = Decimal(str(order['tax'])) if order['tax'] else Decimal('0')
+                total_sell += (share * price) + tax
             
             # 如果累计投入为0，跳过（没有实际投资过）
-            if total_investment == 0:
+            if total_buy == 0:
                 continue
             
             # 计算持仓市值
@@ -363,15 +383,15 @@ class StockDao:
                 if current_price:
                     holdings_value += current_price * share
             
-            # 当前总财富 = 持仓市值 + 账户余额
-            total_wealth = holdings_value + balance
+            # 当前总财富 = 持仓市值 - 所有购买股票的成本 + 所有出售股票的收入
+            total_wealth = holdings_value - total_buy + total_sell
             
             # 绝对盈亏 = 当前总财富 - 累计投入
-            absolute_profit_loss = total_wealth - total_investment
+            absolute_profit_loss = total_wealth - total_buy
             
             # 相对盈亏（百分比） = 绝对盈亏 / 累计投入 * 100
-            if total_investment > 0:
-                relative_profit_loss = float((absolute_profit_loss / total_investment) * 100)
+            if total_buy > 0:
+                relative_profit_loss = float((absolute_profit_loss / total_buy) * 100)
             else:
                 relative_profit_loss = 0.0
             
@@ -380,14 +400,34 @@ class StockDao:
                 'total_wealth': float(total_wealth),
                 'holdings_value': float(holdings_value),
                 'balance': float(balance),
-                'total_investment': float(total_investment),
+                'total_buy': float(total_buy),
+                'total_sell': float(total_sell),
                 'absolute_profit_loss': float(absolute_profit_loss),
                 'relative_profit_loss': relative_profit_loss
             })
         
         return players_data
     
-    
+
+    def get_cached_single_player_profit_loss(self, player_xuid):
+        current_time = time.time()        
+        cached_data = self.database_manager.query_one(
+            "SELECT * FROM tb_leaderboard WHERE is_absolute = ? AND last_updated > ? AND player_xuid = ? ORDER BY rank LIMIT 10",
+            (True, current_time - 3600, player_xuid), 
+        )
+
+        return {
+            'player_xuid': player_xuid,
+            'total_wealth': cached_data["total_wealth"],
+            'holdings_value': cached_data["holdings_value"],
+            'balance': cached_data["balance"],
+            'total_buy': cached_data["total_buy"],
+            'total_sell': cached_data["total_sell"],
+            'absolute_profit_loss': cached_data["absolute_profit_loss"],
+            'relative_profit_loss': cached_data["relative_profit_loss"]
+        }
+
+
     def save_leaderboard_data(self, players_data, is_absolute):
         """
         保存排行榜数据到数据库
@@ -411,9 +451,10 @@ class StockDao:
             self.database_manager.insert("tb_leaderboard", {
                 "player_xuid": player_data['player_xuid'],
                 "total_wealth": player_data['total_wealth'],
-                "balance": player_data['balance'],
                 "holdings_value": player_data['holdings_value'],
-                "total_investment": player_data['total_investment'],
+                "balance": player_data['balance'],
+                "total_buy": player_data['total_buy'],
+                "total_sell": player_data['total_sell'],
                 "absolute_profit_loss": player_data['absolute_profit_loss'],
                 "relative_profit_loss": player_data['relative_profit_loss'],
                 "is_absolute": is_absolute,

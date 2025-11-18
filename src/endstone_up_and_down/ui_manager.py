@@ -39,54 +39,13 @@ class UIManager:
                 try:
                     # 获取账户信息
                     balance = self.plugin.stock_dao.get_balance(xuid)
-                    holdings = self.plugin.stock_dao.get_shares(xuid, page=0, page_size=100)
                     
-                    # 计算总市值
-                    total_market_value = Decimal('0')
-                    
-                    for holding in holdings:
-                        if holding['share'] <= 0:
-                            continue
-                            
-                        stock_name = holding['stock_name']
-                        share = Decimal(str(holding['share']))
-                        
-                        # 获取当前价格
-                        current_price, _ = self.plugin.get_stock_last_price(stock_name)
-                        if current_price:
-                            market_value = current_price * share
-                            total_market_value += market_value
-                    
-                    # 总财富 = 余额 + 总市值
-                    total_wealth = Decimal(str(balance)) + total_market_value
-                    
-                    # 实时计算累计投入：通过查询买入订单的总成本
-                    buy_orders = self.plugin.database_manager.query_all(
-                        """
-                        SELECT share, single_price, tax 
-                        FROM tb_player_order 
-                        WHERE player_xuid = ? 
-                        AND (type = 'buy_flex' OR type = 'buy_fix')
-                        AND total IS NOT NULL
-                        """,
-                        (xuid,)
-                    )
-                    
-                    total_investment = Decimal('0')
-                    for order in buy_orders:
-                        # 累计投入 = 买入总金额 + 手续费
-                        share = Decimal(str(order['share']))
-                        price = Decimal(str(order['single_price']))
-                        tax = Decimal(str(order['tax'])) if order['tax'] else Decimal('0')
-                        total_investment += (share * price) + tax
-                    
-                    # 计算绝对盈亏和相对盈亏
-                    absolute_profit_loss = total_wealth - total_investment
-                    if total_investment > 0:
-                        relative_profit_loss = float((absolute_profit_loss / total_investment) * 100)
-                    else:
-                        relative_profit_loss = 0.0
-                    
+                    cached_player_data = self.plugin.stock_dao.get_cached_single_player_profit_loss(xuid)
+                    total_market_value = cached_player_data['holding_value']
+                    total_wealth = cached_player_data['total_wealth']
+                    relative_profit_loss = cached_player_data['relative_profit_loss']
+                    absolute_profit_loss = cached_player_data['absolute_profit_loss']
+
                     # 获取玩家的颜色配置
                     profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, float(absolute_profit_loss))
                     
@@ -95,8 +54,7 @@ class UIManager:
                     content += f"账户余额: ${balance:.2f}\n"
                     content += f"持仓市值: ${total_market_value:.2f}\n"
                     content += f"总财富: ${total_wealth:.2f}\n"
-                    content += f"累计投入: ${total_investment:.2f}\n\n"
-                    
+
                     # 显示绝对盈亏
                     if absolute_profit_loss > 0:
                         content += f"绝对盈亏: {profit_color}+${absolute_profit_loss:.2f}§r\n"
@@ -1367,7 +1325,6 @@ class UIManager:
                 content += f"#{idx} {player_name}\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
                 content += f"   总财富: ${data['total_wealth']:.2f}\n"
-                content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
             
             content += "§l§7倒数5名 (韭菜榜)§r\n\n"
             
@@ -1390,7 +1347,6 @@ class UIManager:
                 content += f"#{data['rank']} {player_name}\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
                 content += f"   总财富: ${data['total_wealth']:.2f}\n"
-                content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
             
             # 在主线程显示UI
             def show_panel():

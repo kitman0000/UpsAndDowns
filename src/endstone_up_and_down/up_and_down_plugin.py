@@ -558,6 +558,22 @@ class UpAndDownPlugin(Plugin):
         sender.send_message(f"使用/stock shares {page + 2} 显示下一页")
             
 
+    def update_leaderboard(self):
+        """Update leaderboard data for both absolute and relative profit/loss"""
+        try:
+            # Call get_all_players_profit_loss with is_absolute=True
+            absolute_data = self.stock_dao.get_all_players_profit_loss(self.get_stock_last_price)
+            self.stock_dao.save_leaderboard_data(absolute_data, True)
+            
+            # Call get_all_players_profit_loss with is_absolute=False
+            relative_data = self.stock_dao.get_all_players_profit_loss(self.get_stock_last_price)
+            self.stock_dao.save_leaderboard_data(relative_data, False)
+            
+            self.logger.info("Leaderboard updated successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to update leaderboard: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
 
     @event_handler
     def on_server_load(self, event: ServerLoadEvent):

@@ -386,3 +386,37 @@ class StockDao:
             })
         
         return players_data
+    
+    
+    def save_leaderboard_data(self, players_data, is_absolute):
+        """
+        保存排行榜数据到数据库
+        :param players_data: 玩家数据列表
+        :param is_absolute: 是否为绝对盈亏排行榜
+        """
+        # 先清空旧数据
+        self.database_manager.execute(
+            "DELETE FROM tb_leaderboard WHERE is_absolute = ?", 
+            (is_absolute,)
+        )
+        
+        # 按指定字段排序（绝对盈亏或相对盈亏）
+        if is_absolute:
+            sorted_data = sorted(players_data, key=lambda x: x['absolute_profit_loss'], reverse=True)
+        else:
+            sorted_data = sorted(players_data, key=lambda x: x['relative_profit_loss'], reverse=True)
+        
+        # 插入新数据
+        for rank, player_data in enumerate(sorted_data, 1):
+            self.database_manager.insert("tb_leaderboard", {
+                "player_xuid": player_data['player_xuid'],
+                "total_wealth": player_data['total_wealth'],
+                "balance": player_data['balance'],
+                "holdings_value": player_data['holdings_value'],
+                "total_investment": player_data['total_investment'],
+                "absolute_profit_loss": player_data['absolute_profit_loss'],
+                "relative_profit_loss": player_data['relative_profit_loss'],
+                "is_absolute": is_absolute,
+                "last_updated": time.time(),
+                "rank": rank
+            })

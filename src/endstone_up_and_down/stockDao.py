@@ -325,6 +325,8 @@ class StockDao:
             return []
         
         players_data = []
+
+        price_cache_dict = {}
         
         for account in all_accounts:
             player_xuid = account['player_xuid']
@@ -385,7 +387,11 @@ class StockDao:
                 share = Decimal(str(holding['share']))
                 
                 # 获取当前股票价格
-                current_price, _ = get_stock_price_func(stock_name)
+                if stock_name not in price_cache_dict:
+                    current_price, _ = get_stock_price_func(stock_name)
+                    price_cache_dict[stock_name] = current_price
+                else:
+                    current_price = price_cache_dict[stock_name]
                 if current_price:
                     holdings_value += current_price * share
             

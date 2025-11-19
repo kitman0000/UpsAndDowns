@@ -53,6 +53,12 @@ class StockDao:
             "last_updated": "float",
             "rank": "int"
         })
+
+        """QQ Notice record Table"""
+        self.database_manager.create_table("tb_qq_notice", {
+            "id": "INTEGER primary key autoincrement",
+            "send_date": "TEXT"
+        })
         
         
     def create_order(self, xuid, stock_name, share, type):
@@ -458,3 +464,21 @@ class StockDao:
                 "last_updated": time.time(),
                 "rank": rank
             })
+
+        
+    def insert_qq_send_log(self, date_str):
+        exist_log = self.database_manager.query_all(
+            'SELECT * FROM tb_qq_notice WHERE send_date = ? ', (date_str,)
+        )
+
+        if len(exist_log) != 0:
+            return False
+        
+        try:
+            self.database_manager.insert("tb_qq_notice", {
+                "send_date": date_str
+            })
+            return True
+        except Exception as ex:
+            print(f"更新QQ日志表错误:{ex}")
+            return False

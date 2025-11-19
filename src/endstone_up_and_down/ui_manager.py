@@ -1330,6 +1330,7 @@ class UIManager:
             
             # 显示倒数5名
             bottom_5 = stored_data[-5:]
+            bottom_5.reverse()
             for idx, data in enumerate(bottom_5, 1):
                 player_name = self._get_player_name(data['player_xuid'])
                 profit_loss = data['absolute_profit_loss']
@@ -1344,7 +1345,7 @@ class UIManager:
                     sign = ""
                 
                 # 使用存储的排名
-                content += f"#{data['rank']} {player_name}\n"
+                content += f"#{idx} {player_name}\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
                 content += f"   总财富: ${data['total_wealth']:.2f}\n"
             
@@ -1437,6 +1438,7 @@ class UIManager:
             
             # 显示倒数5名
             bottom_5 = stored_data[-5:]
+            bottom_5.reverse()
             for idx, data in enumerate(bottom_5, 1):
                 player_name = self._get_player_name(data['player_xuid'])
                 profit_loss_percent = data['relative_profit_loss']
@@ -1452,7 +1454,7 @@ class UIManager:
                     sign = ""
                 
                 # 使用存储的排名
-                content += f"#{data['rank']} {player_name}\n"
+                content += f"#{idx} {player_name}\n"
                 content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
             

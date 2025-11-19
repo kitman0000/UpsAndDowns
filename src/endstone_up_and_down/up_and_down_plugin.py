@@ -586,7 +586,7 @@ class UpAndDownPlugin(Plugin):
                     
                     # 显示前5名
                     for idx, data in enumerate(stored_data[:5], 1):
-                        player_name = self._get_player_name(data['player_xuid'])
+                        player_name = self.ui_manager._get_player_name(data['player_xuid'])
                         profit_loss_percent = data['relative_profit_loss']
                         profit_loss = data['absolute_profit_loss']
                         
@@ -608,7 +608,7 @@ class UpAndDownPlugin(Plugin):
                     bottom_5 = stored_data[-5:]
                     bottom_5.reverse()
                     for idx, data in enumerate(bottom_5, 1):
-                        player_name = self._get_player_name(data['player_xuid'])
+                        player_name = self.ui_manager._get_player_name(data['player_xuid'])
                         profit_loss_percent = data['relative_profit_loss']
                         profit_loss = data['absolute_profit_loss']
                         

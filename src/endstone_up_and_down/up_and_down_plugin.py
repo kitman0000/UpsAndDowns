@@ -574,7 +574,7 @@ class UpAndDownPlugin(Plugin):
                 # 获取当前日期，格式 yyyy-mm-dd
                 if self.qqsync != None:
                     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-                    stored_data = self.plugin.get_leaderboard_data(is_absolute=False)
+                    stored_data = self.get_leaderboard_data(is_absolute=False)
             
                     # 获取最后更新时间
                     last_updated = stored_data[0]['last_updated'] if stored_data else time.time()
@@ -624,7 +624,7 @@ class UpAndDownPlugin(Plugin):
                         content += f"#{idx} {player_name}\n"
                         content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
                         content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
-                    content += "ARC股票插件，为群友带来初生飞舞的财富🤑"
+                    content += "ARC股票插件，为群友带来初升飞舞的财富🤑"
                     
                     if self.stock_dao.insert_qq_send_log(today_str):
                         self.send_to_qq_group(content)

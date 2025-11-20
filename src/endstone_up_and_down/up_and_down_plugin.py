@@ -572,7 +572,7 @@ class UpAndDownPlugin(Plugin):
                 self.logger.info("Leaderboard updated successfully")
 
                 # 获取当前日期，格式 yyyy-mm-dd
-                if self.qqsync != None:
+                if self.qqsync is not None and datetime.datetime.now().time() > datetime.time(8, 0):
                     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
                     stored_data = self.get_leaderboard_data(is_absolute=False)
             

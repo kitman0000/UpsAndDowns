@@ -806,7 +806,7 @@ class UIManager:
     def _confirm_buy_stock(self, player, stock_name: str, json_str: str, market_price: float):
         try:            
             fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
-            fee = Decimal(str(market_price)) * Decimal(0.01) * Decimal(str(fee_rate))
+            fee = Decimal(str(market_price)) * Decimal('0.01') * Decimal(str(fee_rate))
 
             data = json.loads(json_str)
             
@@ -818,20 +818,18 @@ class UIManager:
             if order_type_index == 0:  # 市价单
                 price = market_price
                 total = Decimal(str(price)) * Decimal(str(share_str))
-                total += total * Decimal(str(fee_rate))
+                total += total * Decimal(str(fee_rate)) * Decimal('0.01')
                 msg = f"单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总价{total}\n\n 注意：市价单将以确认时的实时价格成交:"
             else:
                 price = limit_price_str
                 total = Decimal(str(price)) * Decimal(str(share_str))
-                total += total * Decimal(str(fee_rate))
+                total += total * Decimal(str(fee_rate)) * Decimal('0.01')
                 msg = f"单股市场价: ${market_price}\n订单限价:{price}\n 手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总价{total}\n\n 注意：市价单将以确认时的实时价格成交:"
             
             # 直接显示UI，不获取价格
             buy_form = ActionForm(
                 title=f"买入 {stock_name}",
-                controls=[
-                    Label(text=msg),
-                ],
+                content=msg
             )
 
             buy_form.add_button(
@@ -850,7 +848,7 @@ class UIManager:
     def _confirm_sell_stock(self, player, stock_name: str, json_str: str, market_price: float):
         try:            
             fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
-            fee = Decimal(str(market_price)) * Decimal(0.01) * Decimal(str(fee_rate))
+            fee = Decimal(str(market_price)) * Decimal('0.01') * Decimal(str(fee_rate))
 
             data = json.loads(json_str)
             
@@ -862,12 +860,12 @@ class UIManager:
             if order_type_index == 0:  # 市价单
                 price = market_price
                 total = Decimal(str(price)) * Decimal(str(share_str))
-                total -= total * Decimal(str(fee_rate))  # 卖出时手续费从总收入中扣除
+                total -= total * Decimal(str(fee_rate)) * Decimal('0.01')  # 卖出时手续费从总收入中扣除
                 msg = f"单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总收入{total}\n\n 注意：市价单将以确认时的实时价格成交:"
             else:
                 price = limit_price_str
                 total = Decimal(str(price)) * Decimal(str(share_str))
-                total -= total * Decimal(str(fee_rate))  # 卖出时手续费从总收入中扣除
+                total -= total * Decimal(str(fee_rate)) * Decimal('0.01') # 卖出时手续费从总收入中扣除
                 msg = f"单股市场价: ${market_price}\n订单限价:{price}\n 手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总收入{total}\n\n 注意：市价单将以确认时的实时价格成交:"
             
             # 直接显示UI，不获取价格

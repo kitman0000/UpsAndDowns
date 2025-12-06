@@ -148,6 +148,9 @@ class StockDao:
         
     def get_balance(self, xuid):
         account = self.database_manager.query_one("SELECT * FROM tb_player_account WHERE player_xuid = ? ", (xuid,))
+
+        if account == None or account["balance"] == None:
+            return None
         return account["balance"]
         
         
@@ -412,6 +415,9 @@ class StockDao:
             "SELECT * FROM tb_leaderboard WHERE is_absolute = ? AND last_updated > ? AND player_xuid = ? ORDER BY rank LIMIT 10",
             (True, current_time - 3600, player_xuid), 
         )
+
+        if cached_data == None:
+            return None
 
         return {
             'player_xuid': player_xuid,

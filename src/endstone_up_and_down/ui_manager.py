@@ -790,7 +790,7 @@ class UIManager:
                         default_value=""
                     )
                 ],
-                on_submit=lambda sender, json_str: self._handle_buy_stock(sender, stock_name, json_str, market_price),
+                on_submit=lambda sender, json_str: self._confirm_buy_stock(sender, stock_name, json_str, market_price),
                 on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
             )
             
@@ -801,7 +801,98 @@ class UIManager:
             import traceback
             traceback.print_exc()
             player.send_message("§c显示买入面板时发生错误")
-    
+
+
+    def _confirm_buy_stock(self, player, stock_name: str, json_str: str, market_price: float):
+        try:            
+            fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
+            fee = Decimal(str(market_price)) * Decimal('0.01') * Decimal(str(fee_rate))
+
+            data = json.loads(json_str)
+            
+            # 解析输入
+            share_str = data[1]
+            order_type_index = data[2]
+            limit_price_str = data[3]
+
+            if order_type_index == 0:  # 市价单
+                price = market_price
+                total = Decimal(str(price)) * Decimal(str(share_str))
+                total += total * Decimal(str(fee_rate)) * Decimal('0.01')
+                msg = f"单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总价{total}\n\n 注意：市价单将以确认时的实时价格成交:"
+            else:
+                price = limit_price_str
+                total = Decimal(str(price)) * Decimal(str(share_str))
+                total += total * Decimal(str(fee_rate)) * Decimal('0.01')
+                msg = f"单股市场价: ${market_price}\n订单限价:{price}\n 手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总价{total}\n\n 注意：市价单将以确认时的实时价格成交:"
+            
+            # 直接显示UI，不获取价格
+            buy_form = ActionForm(
+                title=f"买入 {stock_name}",
+                content=msg
+            )
+
+            buy_form.add_button(
+                "确认买入",
+                on_click=lambda sender: self._handle_buy_stock(sender, stock_name, json_str, market_price)
+            )
+            
+            player.send_form(buy_form)
+            
+        except Exception as e:
+            print(f"显示买入面板错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            player.send_message("§c显示买入面板时发生错误")
+
+    def _confirm_sell_stock(self, player, stock_name: str, json_str: str, market_price: float):
+        try:            
+            fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
+            fee = Decimal(str(market_price)) * Decimal('0.01') * Decimal(str(fee_rate))
+
+            data = json.loads(json_str)
+            
+            # 解析输入
+            share_str = data[1]
+            order_type_index = data[2]
+            limit_price_str = data[3]
+
+            if order_type_index == 0:  # 市价单
+                price = market_price
+                total = Decimal(str(price)) * Decimal(str(share_str))
+                total -= total * Decimal(str(fee_rate)) * Decimal('0.01')  # 卖出时手续费从总收入中扣除
+                msg = f"单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总收入{total}\n\n 注意：市价单将以确认时的实时价格成交:"
+            else:
+                price = limit_price_str
+                total = Decimal(str(price)) * Decimal(str(share_str))
+                total -= total * Decimal(str(fee_rate)) * Decimal('0.01') # 卖出时手续费从总收入中扣除
+                msg = f"单股市场价: ${market_price}\n订单限价:{price}\n 手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总收入{total}\n\n 注意：市价单将以确认时的实时价格成交:"
+            
+            # 直接显示UI，不获取价格
+            sell_form = ActionForm(
+                title=f"卖出 {stock_name}",
+                content=msg
+            )
+
+            sell_form.add_button(
+                "确认卖出",
+                on_click=lambda sender: self._handle_sell_stock(sender, stock_name, json_str, market_price)
+            )
+            
+            sell_form.add_button(
+                "返回",
+                on_click=lambda sender: self.show_sell_panel(sender, stock_name, market_price)
+            )
+            
+            player.send_form(sell_form)
+            
+        except Exception as e:
+            print(f"显示卖出确认面板错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            player.send_message("§c显示卖出确认面板时发生错误")
+
+
     def _handle_buy_stock(self, player, stock_name: str, json_str: str, market_price: float):
         """处理买入股票"""
         try:
@@ -898,7 +989,7 @@ class UIManager:
                         default_value=""
                     )
                 ],
-                on_submit=lambda sender, json_str: self._handle_sell_stock(sender, stock_name, holding, json_str, market_price),
+                on_submit=lambda sender, json_str: self._confirm_sell_stock(sender, stock_name, json_str, market_price),
                 on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
             )
             
@@ -1330,6 +1421,7 @@ class UIManager:
             
             # 显示倒数5名
             bottom_5 = stored_data[-5:]
+            bottom_5.reverse()
             for idx, data in enumerate(bottom_5, 1):
                 player_name = self._get_player_name(data['player_xuid'])
                 profit_loss = data['absolute_profit_loss']
@@ -1344,7 +1436,7 @@ class UIManager:
                     sign = ""
                 
                 # 使用存储的排名
-                content += f"#{data['rank']} {player_name}\n"
+                content += f"#{idx} {player_name}\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
                 content += f"   总财富: ${data['total_wealth']:.2f}\n"
             
@@ -1437,6 +1529,7 @@ class UIManager:
             
             # 显示倒数5名
             bottom_5 = stored_data[-5:]
+            bottom_5.reverse()
             for idx, data in enumerate(bottom_5, 1):
                 player_name = self._get_player_name(data['player_xuid'])
                 profit_loss_percent = data['relative_profit_loss']
@@ -1452,7 +1545,7 @@ class UIManager:
                     sign = ""
                 
                 # 使用存储的排名
-                content += f"#{data['rank']} {player_name}\n"
+                content += f"#{idx} {player_name}\n"
                 content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
             

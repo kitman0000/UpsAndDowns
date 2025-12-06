@@ -53,6 +53,12 @@ class StockDao:
             "last_updated": "float",
             "rank": "int"
         })
+
+        """QQ Notice record Table"""
+        self.database_manager.create_table("tb_qq_notice", {
+            "id": "INTEGER primary key autoincrement",
+            "send_date": "TEXT"
+        })
         
         
     def create_order(self, xuid, stock_name, share, type):
@@ -322,6 +328,8 @@ class StockDao:
             return []
         
         players_data = []
+
+        price_cache_dict = {}
         
         for account in all_accounts:
             player_xuid = account['player_xuid']
@@ -382,7 +390,11 @@ class StockDao:
                 share = Decimal(str(holding['share']))
                 
                 # 获取当前股票价格
-                current_price, _ = get_stock_price_func(stock_name)
+                if stock_name not in price_cache_dict:
+                    current_price, _ = get_stock_price_func(stock_name)
+                    price_cache_dict[stock_name] = current_price
+                else:
+                    current_price = price_cache_dict[stock_name]
                 if current_price:
                     holdings_value += current_price * share
             
@@ -464,3 +476,21 @@ class StockDao:
                 "last_updated": time.time(),
                 "rank": rank
             })
+
+        
+    def insert_qq_send_log(self, date_str):
+        exist_log = self.database_manager.query_all(
+            'SELECT * FROM tb_qq_notice WHERE send_date = ? ', (date_str,)
+        )
+
+        if len(exist_log) != 0:
+            return False
+        
+        try:
+            self.database_manager.insert("tb_qq_notice", {
+                "send_date": date_str
+            })
+            return True
+        except Exception as ex:
+            print(f"更新QQ日志表错误:{ex}")
+            return False

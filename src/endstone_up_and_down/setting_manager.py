@@ -56,7 +56,7 @@ update_interval=60
 
 # 交易手续费率（百分比，例如：2.0 表示2%）
 # Trading fee rate (percentage, e.g.: 2.0 means 2%)
-trading_fee_rate=2.0
+trading_fee_rate=1.0
 """
         with self.setting_file_path.open("w", encoding="utf-8") as f:
             f.write(default_config)
@@ -125,7 +125,7 @@ trading_fee_rate=2.0
         :return: 手续费率，例如 2.0 表示 2%
         """
         try:
-            return float(self.get_setting("trading_fee_rate", "2.0"))
+            return float(self.get_setting("trading_fee_rate", "1.0"))
         except ValueError:
-            return 2.0
+            return 1.0
 

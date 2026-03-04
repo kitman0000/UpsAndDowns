@@ -105,18 +105,21 @@ class UpAndDownPlugin(Plugin):
         
 
     def on_enable(self) -> None:
+        # Schedule leaderboard update every 30 minutes
+        self.server.scheduler.run_task(
+            self, 
+            self.update_leaderboard, 
+            delay=0, 
+            period=20 * 60 * 30
+        )
+
         self.economy_plugin = self.server.plugin_manager.get_plugin('arc_core')
-        # self.logger.info("on_enable is called!")
-        # self.get_command("python").executor = PythonCommandExecutor()
-
-        # self.register_events(self)  # register event listeners defined directly in Plugin class
-        # self.register_events(ExampleListener(self))  # you can also register event listeners in a separate class
-
-        # self.server.scheduler.run_task(self, self.log_time, delay=0, period=20 * 1)  # every second
+        self.qqsync = self.server.plugin_manager.get_plugin('qqsync_plugin')
+        
 
     def on_disable(self) -> None:
         pass
-        # self.logger.info("on_disable is called!")
+
 
     def execute_command(self, sender: CommandSender, args: list[str], return_value:bool, callback=None, callback_args=None):
         def command_executor():
@@ -544,8 +547,130 @@ class UpAndDownPlugin(Plugin):
             
         sender.send_message(message)
         sender.send_message(f"使用/stock shares {page + 2} 显示下一页")
+
+
+    def send_to_qq_group(self, message: str):
+        """
+        发送消息到QQ群
+        :param message: 要发送的消息
+        """
+        try:
+            # 发送消息到QQ群
+            success = self.qqsync.api_send_message(message)
+            if success:
+                self.logger.info(f"[ARC Core] 死亡消息已发送到QQ群: {message}")
+            else:
+                self.logger.warning(f"[ARC Core] QQ群消息发送失败: {message}")
+        except Exception as e:
+            self.logger.error(f"[ARC Core] QQ群消息发送异常: {str(e)}")
+            # 即使QQ群发送失败，也不影响游戏正常运行
             
 
+    def update_leaderboard(self):
+        def _execute():
+            """Update leaderboard data for both absolute and relative profit/loss"""
+            try:
+                self.logger.info("Leaderboard updating")
+
+                # Call get_all_players_profit_loss with is_absolute=True
+                absolute_data = self.stock_dao.get_all_players_profit_loss(self.get_stock_last_price)
+                self.stock_dao.save_leaderboard_data(absolute_data, True)
+                
+                # Call get_all_players_profit_loss with is_absolute=False
+                relative_data = self.stock_dao.get_all_players_profit_loss(self.get_stock_last_price)
+                self.stock_dao.save_leaderboard_data(relative_data, False)
+                
+                self.logger.info("Leaderboard updated successfully")
+
+                # 获取当前日期，格式 yyyy-mm-dd
+                if self.qqsync is not None and datetime.datetime.now().time() > datetime.time(8, 0):
+                    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+                    stored_data = self.get_leaderboard_data(is_absolute=False)
+            
+                    # 获取最后更新时间
+                    last_updated = stored_data[0]['last_updated'] if stored_data else time.time()
+                    
+                    # 构建内容
+                    content = "早安，各位彼阳群友☀️，以下是今日服务器股票排行榜"
+                    content += f"相对盈亏排行榜 (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                    content += "前5名 (高手榜)\n\n"
+                    
+                    # 显示前5名
+                    for idx, data in enumerate(stored_data[:5], 1):
+                        player_name = self.ui_manager._get_player_name(data['player_xuid'])
+                        profit_loss_percent = data['relative_profit_loss']
+                        profit_loss = data['absolute_profit_loss']
+                        
+                        # 使用统一的颜色逻辑
+                        if profit_loss_percent > 0:
+                            sign = "🟥+"
+                        elif profit_loss_percent < 0:
+                            sign = "🟩-"
+                        else:
+                            sign = ""
+                        
+                        content += f"#{idx} {player_name}\n"
+                        content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
+                        content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
+                    
+                    content += "倒数5名 (接盘侠榜)\n\n"
+                    
+                    # 显示倒数5名
+                    bottom_5 = stored_data[-5:]
+                    bottom_5.reverse()
+                    for idx, data in enumerate(bottom_5, 1):
+                        player_name = self.ui_manager._get_player_name(data['player_xuid'])
+                        profit_loss_percent = data['relative_profit_loss']
+                        profit_loss = data['absolute_profit_loss']
+                        
+                        # 使用统一的颜色逻辑
+                        if profit_loss_percent > 0:
+                            sign = "🟥+"
+                        elif profit_loss_percent < 0:
+                            sign = "🟩-"
+                        else:
+                            sign = ""
+                        
+                        # 使用存储的排名
+                        content += f"#{idx} {player_name}\n"
+                        content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
+                        content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
+                    content += "ARC股票插件，为群友带来初升飞舞的财富🤑"
+                    
+                    if self.stock_dao.insert_qq_send_log(today_str):
+                        self.send_to_qq_group(content)
+
+
+            except Exception as e:
+                self.logger.error(f"Failed to update leaderboard: {str(e)}")
+                import traceback
+                self.logger.error(traceback.format_exc())
+
+        threading.Thread(target=_execute).start()
+
+
+    def get_leaderboard_data(self, is_absolute=True):
+        """Get leaderboard data from database
+        Args:
+            is_absolute: True for absolute leaderboard, False for relative
+        Returns:
+            List of player data or empty list
+        """
+        try:
+            cached_data = self.stock_dao.get_leaderboard_cached_data(is_absolute)
+            if len(cached_data) > 0:
+                return cached_data
+                
+            else:
+                return None
+        except Exception as e:
+            self.logger.error(f"Failed to get leaderboard data: {str(e)}")
+            return []
+            
+        except Exception as e:
+            self.logger.error(f"Leaderboard update failed: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
 
     @event_handler
     def on_server_load(self, event: ServerLoadEvent):

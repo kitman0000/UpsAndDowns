@@ -3,6 +3,8 @@ UI管理器 - 处理所有股票插件的UI表单
 """
 import json
 from decimal import Decimal
+import datetime
+import time
 from typing import Callable, Optional, TYPE_CHECKING
 
 from endstone.form import ActionForm, ModalForm, Label, TextInput, Dropdown
@@ -37,41 +39,13 @@ class UIManager:
                 try:
                     # 获取账户信息
                     balance = self.plugin.stock_dao.get_balance(xuid)
-                    holdings = self.plugin.stock_dao.get_shares(xuid, page=0, page_size=100)
                     
-                    # 计算总市值
-                    total_market_value = Decimal('0')
-                    
-                    for holding in holdings:
-                        if holding['share'] <= 0:
-                            continue
-                            
-                        stock_name = holding['stock_name']
-                        share = Decimal(str(holding['share']))
-                        
-                        # 获取当前价格
-                        current_price, _ = self.plugin.get_stock_last_price(stock_name)
-                        if current_price:
-                            market_value = current_price * share
-                            total_market_value += market_value
-                    
-                    # 总财富 = 余额 + 总市值
-                    total_wealth = Decimal(str(balance)) + total_market_value
-                    
-                    # 获取累计投入
-                    account_info = self.plugin.database_manager.query_one(
-                        "SELECT total_investment FROM tb_player_account WHERE player_xuid = ?",
-                        (xuid,)
-                    )
-                    total_investment = Decimal(str(account_info.get('total_investment', 0) or 0)) if account_info else Decimal('0')
-                    
-                    # 计算绝对盈亏和相对盈亏
-                    absolute_profit_loss = total_wealth - total_investment
-                    if total_investment > 0:
-                        relative_profit_loss = float((absolute_profit_loss / total_investment) * 100)
-                    else:
-                        relative_profit_loss = 0.0
-                    
+                    cached_player_data = self.plugin.stock_dao.get_cached_single_player_profit_loss(xuid)
+                    total_market_value = cached_player_data['holdings_value']
+                    total_wealth = cached_player_data['total_wealth']
+                    relative_profit_loss = cached_player_data['relative_profit_loss']
+                    absolute_profit_loss = cached_player_data['absolute_profit_loss']
+
                     # 获取玩家的颜色配置
                     profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, float(absolute_profit_loss))
                     
@@ -80,8 +54,7 @@ class UIManager:
                     content += f"账户余额: ${balance:.2f}\n"
                     content += f"持仓市值: ${total_market_value:.2f}\n"
                     content += f"总财富: ${total_wealth:.2f}\n"
-                    content += f"累计投入: ${total_investment:.2f}\n\n"
-                    
+
                     # 显示绝对盈亏
                     if absolute_profit_loss > 0:
                         content += f"绝对盈亏: {profit_color}+${absolute_profit_loss:.2f}§r\n"
@@ -817,7 +790,7 @@ class UIManager:
                         default_value=""
                     )
                 ],
-                on_submit=lambda sender, json_str: self._handle_buy_stock(sender, stock_name, json_str, market_price),
+                on_submit=lambda sender, json_str: self._confirm_buy_stock(sender, stock_name, json_str, market_price),
                 on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
             )
             
@@ -828,7 +801,98 @@ class UIManager:
             import traceback
             traceback.print_exc()
             player.send_message("§c显示买入面板时发生错误")
-    
+
+
+    def _confirm_buy_stock(self, player, stock_name: str, json_str: str, market_price: float):
+        try:            
+            fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
+            fee = Decimal(str(market_price)) * Decimal('0.01') * Decimal(str(fee_rate))
+
+            data = json.loads(json_str)
+            
+            # 解析输入
+            share_str = data[1]
+            order_type_index = data[2]
+            limit_price_str = data[3]
+
+            if order_type_index == 0:  # 市价单
+                price = market_price
+                total = Decimal(str(price)) * Decimal(str(share_str))
+                total += total * Decimal(str(fee_rate)) * Decimal('0.01')
+                msg = f"单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总价{total}\n\n 注意：市价单将以确认时的实时价格成交:"
+            else:
+                price = limit_price_str
+                total = Decimal(str(price)) * Decimal(str(share_str))
+                total += total * Decimal(str(fee_rate)) * Decimal('0.01')
+                msg = f"单股市场价: ${market_price}\n订单限价:{price}\n 手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总价{total}\n\n 注意：市价单将以确认时的实时价格成交:"
+            
+            # 直接显示UI，不获取价格
+            buy_form = ActionForm(
+                title=f"买入 {stock_name}",
+                content=msg
+            )
+
+            buy_form.add_button(
+                "确认买入",
+                on_click=lambda sender: self._handle_buy_stock(sender, stock_name, json_str, market_price)
+            )
+            
+            player.send_form(buy_form)
+            
+        except Exception as e:
+            print(f"显示买入面板错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            player.send_message("§c显示买入面板时发生错误")
+
+    def _confirm_sell_stock(self, player, stock_name: str, json_str: str, market_price: float):
+        try:            
+            fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
+            fee = Decimal(str(market_price)) * Decimal('0.01') * Decimal(str(fee_rate))
+
+            data = json.loads(json_str)
+            
+            # 解析输入
+            share_str = data[1]
+            order_type_index = data[2]
+            limit_price_str = data[3]
+
+            if order_type_index == 0:  # 市价单
+                price = market_price
+                total = Decimal(str(price)) * Decimal(str(share_str))
+                total -= total * Decimal(str(fee_rate)) * Decimal('0.01')  # 卖出时手续费从总收入中扣除
+                msg = f"单股市场价: ${market_price}\n手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总收入{total}\n\n 注意：市价单将以确认时的实时价格成交:"
+            else:
+                price = limit_price_str
+                total = Decimal(str(price)) * Decimal(str(share_str))
+                total -= total * Decimal(str(fee_rate)) * Decimal('0.01') # 卖出时手续费从总收入中扣除
+                msg = f"单股市场价: ${market_price}\n订单限价:{price}\n 手续费: {fee_rate}% ({fee})\n\n股数:{share_str}\n\n预计总收入{total}\n\n 注意：市价单将以确认时的实时价格成交:"
+            
+            # 直接显示UI，不获取价格
+            sell_form = ActionForm(
+                title=f"卖出 {stock_name}",
+                content=msg
+            )
+
+            sell_form.add_button(
+                "确认卖出",
+                on_click=lambda sender: self._handle_sell_stock(sender, stock_name, json_str, market_price)
+            )
+            
+            sell_form.add_button(
+                "返回",
+                on_click=lambda sender: self.show_sell_panel(sender, stock_name, market_price)
+            )
+            
+            player.send_form(sell_form)
+            
+        except Exception as e:
+            print(f"显示卖出确认面板错误: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            player.send_message("§c显示卖出确认面板时发生错误")
+
+
     def _handle_buy_stock(self, player, stock_name: str, json_str: str, market_price: float):
         """处理买入股票"""
         try:
@@ -925,7 +989,7 @@ class UIManager:
                         default_value=""
                     )
                 ],
-                on_submit=lambda sender, json_str: self._handle_sell_stock(sender, stock_name, holding, json_str, market_price),
+                on_submit=lambda sender, json_str: self._confirm_sell_stock(sender, stock_name, json_str, market_price),
                 on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
             )
             
@@ -1300,282 +1364,221 @@ class UIManager:
             traceback.print_exc()
             player.send_message("显示排行榜菜单时发生错误")
     
+
     def show_absolute_leaderboard(self, player):
-        """显示绝对盈亏排行榜"""
+        """显示绝对盈亏排行榜（从插件获取数据）"""
         try:
             xuid = player.xuid
             
-            # 使用线程加载数据
-            import threading
+            # 从插件获取排行榜数据
+            stored_data = self.plugin.get_leaderboard_data(is_absolute=True)
             
-            def load_data():
-                try:
-                    # 获取所有玩家数据
-                    all_data = self.plugin.stock_dao.get_all_players_profit_loss(
-                        self.plugin.get_stock_last_price
+            if not stored_data:
+                def show_no_data():
+                    no_data_form = ActionForm(
+                        title="绝对盈亏榜",
+                        content="暂无数据",
+                        on_close=lambda sender: self.show_leaderboard_menu(sender)
                     )
-                    
-                    if not all_data:
-                        def show_no_data():
-                            no_data_form = ActionForm(
-                                title="绝对盈亏榜",
-                                content="暂无数据",
-                                on_close=lambda sender: self.show_leaderboard_menu(sender)
-                            )
-                            player.send_form(no_data_form)
-                        
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            show_no_data,
-                            delay=0
-                        )
-                        return
-                    
-                    # 按绝对盈亏排序
-                    sorted_data = sorted(all_data, key=lambda x: x['absolute_profit_loss'], reverse=True)
-                    
-                    # 获取玩家颜色配置
-                    up_color = self.plugin.player_settings_manager.get_up_color(xuid)
-                    down_color = self.plugin.player_settings_manager.get_down_color(xuid)
-                    
-                    # 构建内容
-                    content = "=== 绝对盈亏排行榜 ===\n\n"
-                    content += "§l§6前5名 (土豪榜)§r\n\n"
-                    
-                    # 显示前5名
-                    for idx, data in enumerate(sorted_data[:5], 1):
-                        player_name = self._get_player_name(data['player_xuid'])
-                        profit_loss = data['absolute_profit_loss']
-                        
-                        # 使用统一的颜色逻辑
-                        color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                        if profit_loss > 0:
-                            sign = "+"
-                        elif profit_loss < 0:
-                            sign = "-"
-                        else:
-                            sign = ""
-                        
-                        medal = f"#{idx}"
-                        
-                        content += f"{medal} {player_name}\n"
-                        content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
-                        content += f"   总财富: ${data['total_wealth']:.2f}\n"
-                        content += f"   (持仓: ${data['holdings_value']:.2f} + 余额: ${data['balance']:.2f})\n"
-                        content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
-                    
-                    content += "§l§7倒数5名 (韭菜榜)§r\n\n"
-                    
-                    # 显示倒数5名
-                    bottom_5 = sorted_data[-5:]
-                    bottom_5.reverse()  # 从最惨的开始
-                    
-                    rank = -1
-                    for idx, data in enumerate(bottom_5, 1):
-                        player_name = self._get_player_name(data['player_xuid'])
-                        profit_loss = data['absolute_profit_loss']
-                        
-                        # 使用统一的颜色逻辑
-                        color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                        if profit_loss > 0:
-                            sign = "+"
-                        elif profit_loss < 0:
-                            sign = "-"
-                        else:
-                            sign = ""
-                        
-                        content += f"#{-rank} {player_name}\n"
-                        content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
-                        content += f"   总财富: ${data['total_wealth']:.2f}\n"
-                        content += f"   (持仓: ${data['holdings_value']:.2f} + 余额: ${data['balance']:.2f})\n"
-                        content += f"   累计投入: ${data['total_investment']:.2f}\n\n"
-                        rank -= 1
-                    
-                    # 在主线程显示UI
-                    def show_panel():
-                        leaderboard_panel = ActionForm(
-                            title="绝对盈亏榜",
-                            content=content
-                        )
-                        
-                        leaderboard_panel.add_button(
-                            "返回排行榜菜单",
-                            on_click=lambda sender: self.show_leaderboard_menu(sender)
-                        )
-                        
-                        player.send_form(leaderboard_panel)
-                    
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        show_panel,
-                        delay=0
-                    )
-                    
-                except Exception as e:
-                    print(f"加载绝对盈亏排行榜数据错误: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message("显示绝对盈亏排行榜时发生错误"),
-                        delay=0
-                    )
+                    player.send_form(no_data_form)
+                
+                self.plugin.server.scheduler.run_task(
+                    self.plugin,
+                    show_no_data,
+                    delay=0
+                )
+                return
             
-            thread = threading.Thread(target=load_data)
-            thread.start()
+            # 获取最后更新时间
+            last_updated = stored_data[0]['last_updated'] if stored_data else time.time()
+            
+            # 获取玩家颜色配置
+            up_color = self.plugin.player_settings_manager.get_up_color(xuid)
+            down_color = self.plugin.player_settings_manager.get_down_color(xuid)
+            
+            # 构建内容
+            content = f"=== 绝对盈亏排行榜 (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')} ===\n\n"
+            
+            # 显示前5名
+            for idx, data in enumerate(stored_data[:5], 1):
+                player_name = self._get_player_name(data['player_xuid'])
+                profit_loss = data['absolute_profit_loss']
+                
+                # 使用统一的颜色逻辑
+                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                if profit_loss > 0:
+                    sign = "+"
+                elif profit_loss < 0:
+                    sign = "-"
+                else:
+                    sign = ""
+                
+                content += f"#{idx} {player_name}\n"
+                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
+                content += f"   总财富: ${data['total_wealth']:.2f}\n"
+            
+            content += "§l§7倒数5名 (韭菜榜)§r\n\n"
+            
+            # 显示倒数5名
+            bottom_5 = stored_data[-5:]
+            bottom_5.reverse()
+            for idx, data in enumerate(bottom_5, 1):
+                player_name = self._get_player_name(data['player_xuid'])
+                profit_loss = data['absolute_profit_loss']
+                
+                # 使用统一的颜色逻辑
+                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                if profit_loss > 0:
+                    sign = "+"
+                elif profit_loss < 0:
+                    sign = "-"
+                else:
+                    sign = ""
+                
+                # 使用存储的排名
+                content += f"#{idx} {player_name}\n"
+                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
+                content += f"   总财富: ${data['total_wealth']:.2f}\n"
+            
+            # 在主线程显示UI
+            def show_panel():
+                leaderboard_panel = ActionForm(
+                    title="绝对盈亏榜",
+                    content=content
+                )
+                
+                leaderboard_panel.add_button(
+                    "返回排行榜菜单",
+                    on_click=lambda sender: self.show_leaderboard_menu(sender)
+                )
+                
+                player.send_form(leaderboard_panel)
+            
+            self.plugin.server.scheduler.run_task(
+                self.plugin,
+                show_panel,
+                delay=0
+            )
             
         except Exception as e:
-            print(f"显示绝对盈亏排行榜错误: {str(e)}")
+            print(f"加载绝对盈亏排行榜数据错误: {str(e)}")
             import traceback
             traceback.print_exc()
-            player.send_message("显示绝对盈亏排行榜时发生错误")
-    
+            self.plugin.server.scheduler.run_task(
+                self.plugin,
+                lambda: player.send_message("显示绝对盈亏排行榜时发生错误"),
+                delay=0
+            )
+
+
     def show_relative_leaderboard(self, player):
-        """显示相对盈亏排行榜"""
+        """显示相对盈亏排行榜（从插件获取数据）"""
         try:
             xuid = player.xuid
             
-            # 使用线程加载数据
-            import threading
+            # 从插件获取排行榜数据
+            stored_data = self.plugin.get_leaderboard_data(is_absolute=False)
             
-            def load_data():
-                try:
-                    # 获取所有玩家数据
-                    all_data = self.plugin.stock_dao.get_all_players_profit_loss(
-                        self.plugin.get_stock_last_price
+            if not stored_data:
+                def show_no_data():
+                    no_data_form = ActionForm(
+                        title="相对盈亏榜",
+                        content="暂无数据",
+                        on_close=lambda sender: self.show_leaderboard_menu(sender)
                     )
-                    
-                    if not all_data:
-                        def show_no_data():
-                            no_data_form = ActionForm(
-                                title="相对盈亏榜",
-                                content="暂无数据",
-                                on_close=lambda sender: self.show_leaderboard_menu(sender)
-                            )
-                            player.send_form(no_data_form)
-                        
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            show_no_data,
-                            delay=0
-                        )
-                        return
-                    
-                    # 过滤掉投资额为0的玩家
-                    valid_data = [d for d in all_data if d['total_investment'] > 0]
-                    
-                    if not valid_data:
-                        def show_no_valid_data():
-                            no_data_form = ActionForm(
-                                title="相对盈亏榜",
-                                content="暂无有效投资数据",
-                                on_close=lambda sender: self.show_leaderboard_menu(sender)
-                            )
-                            player.send_form(no_data_form)
-                        
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            show_no_valid_data,
-                            delay=0
-                        )
-                        return
-                    
-                    # 按相对盈亏排序
-                    sorted_data = sorted(valid_data, key=lambda x: x['relative_profit_loss'], reverse=True)
-                    
-                    # 获取玩家颜色配置
-                    up_color = self.plugin.player_settings_manager.get_up_color(xuid)
-                    down_color = self.plugin.player_settings_manager.get_down_color(xuid)
-                    
-                    # 构建内容
-                    content = "=== 相对盈亏排行榜 ===\n\n"
-                    content += "§l§6前5名 (高手榜)§r\n\n"
-                    
-                    # 显示前5名
-                    for idx, data in enumerate(sorted_data[:5], 1):
-                        player_name = self._get_player_name(data['player_xuid'])
-                        profit_loss_percent = data['relative_profit_loss']
-                        profit_loss = data['absolute_profit_loss']
-                        
-                        # 使用统一的颜色逻辑
-                        color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                        if profit_loss_percent > 0:
-                            sign = "+"
-                        elif profit_loss_percent < 0:
-                            sign = "-"
-                        else:
-                            sign = ""
-                        
-                        medal = f"#{idx}"
-                        
-                        content += f"{medal} {player_name}\n"
-                        content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
-                        content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
-                    
-                    content += "§l§7倒数5名 (接盘侠榜)§r\n\n"
-                    
-                    # 显示倒数5名
-                    rank = -1
-                    bottom_5 = sorted_data[-5:]
-                    bottom_5.reverse()  # 从最惨的开始
-                    
-                    for idx, data in enumerate(bottom_5, 1):
-                        player_name = self._get_player_name(data['player_xuid'])
-                        profit_loss_percent = data['relative_profit_loss']
-                        profit_loss = data['absolute_profit_loss']
-                        
-                        # 使用统一的颜色逻辑
-                        color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                        if profit_loss_percent > 0:
-                            sign = "+"
-                        elif profit_loss_percent < 0:
-                            sign = "-"
-                        else:
-                            sign = ""
-                        
-                        content += f"#{rank} {player_name}\n"
-                        content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
-                        content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
-                        rank -= 1
-                    
-                    # 在主线程显示UI
-                    def show_panel():
-                        leaderboard_panel = ActionForm(
-                            title="相对盈亏榜",
-                            content=content
-                        )
-                        
-                        leaderboard_panel.add_button(
-                            "返回排行榜菜单",
-                            on_click=lambda sender: self.show_leaderboard_menu(sender)
-                        )
-                        
-                        player.send_form(leaderboard_panel)
-                    
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        show_panel,
-                        delay=0
-                    )
-                    
-                except Exception as e:
-                    print(f"加载相对盈亏排行榜数据错误: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message("显示相对盈亏排行榜时发生错误"),
-                        delay=0
-                    )
+                    player.send_form(no_data_form)
+                
+                self.plugin.server.scheduler.run_task(
+                    self.plugin,
+                    show_no_data,
+                    delay=0
+                )
+                return
             
-            thread = threading.Thread(target=load_data)
-            thread.start()
+            # 获取最后更新时间
+            last_updated = stored_data[0]['last_updated'] if stored_data else time.time()
+            
+            # 获取玩家颜色配置
+            up_color = self.plugin.player_settings_manager.get_up_color(xuid)
+            down_color = self.plugin.player_settings_manager.get_down_color(xuid)
+            
+            # 构建内容
+            content = f"=== 相对盈亏排行榜 (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')} ===\n\n"
+            content += "§l§6前5名 (高手榜)§r\n\n"
+            
+            # 显示前5名
+            for idx, data in enumerate(stored_data[:5], 1):
+                player_name = self._get_player_name(data['player_xuid'])
+                profit_loss_percent = data['relative_profit_loss']
+                profit_loss = data['absolute_profit_loss']
+                
+                # 使用统一的颜色逻辑
+                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                if profit_loss_percent > 0:
+                    sign = "+"
+                elif profit_loss_percent < 0:
+                    sign = "-"
+                else:
+                    sign = ""
+                
+                content += f"#{idx} {player_name}\n"
+                content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
+                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
+            
+            content += "§l§7倒数5名 (接盘侠榜)§r\n\n"
+            
+            # 显示倒数5名
+            bottom_5 = stored_data[-5:]
+            bottom_5.reverse()
+            for idx, data in enumerate(bottom_5, 1):
+                player_name = self._get_player_name(data['player_xuid'])
+                profit_loss_percent = data['relative_profit_loss']
+                profit_loss = data['absolute_profit_loss']
+                
+                # 使用统一的颜色逻辑
+                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                if profit_loss_percent > 0:
+                    sign = "+"
+                elif profit_loss_percent < 0:
+                    sign = "-"
+                else:
+                    sign = ""
+                
+                # 使用存储的排名
+                content += f"#{idx} {player_name}\n"
+                content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
+                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
+            
+            # 在主线程显示UI
+            def show_panel():
+                leaderboard_panel = ActionForm(
+                    title="相对盈亏榜",
+                    content=content
+                )
+                
+                leaderboard_panel.add_button(
+                    "返回排行榜菜单",
+                    on_click=lambda sender: self.show_leaderboard_menu(sender)
+                )
+                
+                player.send_form(leaderboard_panel)
+            
+            self.plugin.server.scheduler.run_task(
+                self.plugin,
+                show_panel,
+                delay=0
+            )
             
         except Exception as e:
-            print(f"显示相对盈亏排行榜错误: {str(e)}")
+            print(f"加载相对盈亏排行榜数据错误: {str(e)}")
             import traceback
             traceback.print_exc()
-            player.send_message("显示相对盈亏排行榜时发生错误")
+            self.plugin.server.scheduler.run_task(
+                self.plugin,
+                lambda: player.send_message("显示相对盈亏排行榜时发生错误"),
+                delay=0
+            )
+    
     
     def _get_player_name(self, player_xuid: str) -> str:
         """
@@ -1834,4 +1837,3 @@ class UIManager:
         except Exception as e:
             print(f"显示风险管理面板错误: {str(e)}")
             player.send_message("§c显示风险管理时发生错误")
-

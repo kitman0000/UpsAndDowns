@@ -1,8 +1,6 @@
 import yfinance as yf
 from decimal import Decimal
 
-yf.set_config(proxy="127.0.0.1:5555")
-
 
 def get_stock_last_price(stock):
     '''

@@ -2,8 +2,6 @@ import time
 import threading
 
 import yfinance as yf
-yf.set_config(proxy="http://127.0.0.1:5555")
-
 from endstone_up_and_down.customWebsocket import CustomWebsocket
 
 class MarketStatusListener():
@@ -26,7 +24,6 @@ class MarketStatusListener():
             
     def start_websocket(self):
         ws = CustomWebsocket()
-        ws.proxy = "http://127.0.0.1:5555"
         def message_handler(message):
             self.last_update_time = time.time()
                 

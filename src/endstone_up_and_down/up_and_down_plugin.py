@@ -73,6 +73,17 @@ class UpAndDownPlugin(Plugin):
             self.logger.info(f"§e已启用代理: {proxy_address}")
         else:
             self.logger.info("§e未启用代理")
+            yf.set_config(proxy=None)
+            
+        # 测试 yfinance 连接
+        try:
+            test_price, tradeable = self.get_stock_last_price("NIO")
+            if test_price:
+                self.logger.info(f"§a[成功] yfinance连接测试成功！NIO当前股票价格: ${test_price}")
+            else:
+                self.logger.warning("§c[失败] yfinance连接测试失败：无法获取NIO的股票价格")
+        except Exception as e:
+            self.logger.error(f"§c[错误] yfinance连接测试失败: {str(e)}")
         
         # 设置数据库路径
         import os

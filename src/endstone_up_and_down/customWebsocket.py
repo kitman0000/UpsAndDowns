@@ -1,4 +1,4 @@
-from typing import List, Optional, Callable, Union
+﻿from typing import List, Optional, Callable, Union
 import json
 from websockets.sync.client import connect as sync_connect
 from yfinance import WebSocket
@@ -7,7 +7,7 @@ class CustomWebsocket(WebSocket):
     
     proxy = None
     
-
+    
     def listen(self, message_handler: Optional[Callable[[dict], None]] = None):
         """
         Start listening to messages from the WebSocket server.

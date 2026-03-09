@@ -41,36 +41,38 @@ class UIManager:
                     balance = self.plugin.stock_dao.get_balance(xuid)
                     
                     cached_player_data = self.plugin.stock_dao.get_cached_single_player_profit_loss(xuid)
-                    total_market_value = cached_player_data['holdings_value']
-                    total_wealth = cached_player_data['total_wealth']
-                    relative_profit_loss = cached_player_data['relative_profit_loss']
-                    absolute_profit_loss = cached_player_data['absolute_profit_loss']
 
-                    # 获取玩家的颜色配置
-                    profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, float(absolute_profit_loss))
-                    
-                    # 构建内容
-                    content = f"=== 股票账户概览 ===\n\n"
-                    content += f"账户余额: ${balance:.2f}\n"
-                    content += f"持仓市值: ${total_market_value:.2f}\n"
-                    content += f"总财富: ${total_wealth:.2f}\n"
+                    content = f"=== 股票账户概览(每30分钟更新) ===\n\n"
+                    if cached_player_data != None:
+                        total_market_value = cached_player_data['holdings_value']
+                        total_wealth = cached_player_data['total_wealth']
+                        relative_profit_loss = cached_player_data['relative_profit_loss']
+                        absolute_profit_loss = cached_player_data['absolute_profit_loss']
 
-                    # 显示绝对盈亏
-                    if absolute_profit_loss > 0:
-                        content += f"绝对盈亏: {profit_color}+${absolute_profit_loss:.2f}§r\n"
-                    elif absolute_profit_loss < 0:
-                        content += f"绝对盈亏: {profit_color}${absolute_profit_loss:.2f}§r\n"
-                    else:
-                        content += f"绝对盈亏: §7${absolute_profit_loss:.2f}§r\n"
-                    
-                    # 显示相对盈亏
-                    if relative_profit_loss > 0:
-                        content += f"相对盈亏: {profit_color}+{relative_profit_loss:.2f}%%§r\n"
-                    elif relative_profit_loss < 0:
-                        content += f"相对盈亏: {profit_color}{relative_profit_loss:.2f}%%§r\n"
-                    else:
-                        content += f"相对盈亏: §7{relative_profit_loss:.2f}%%§r\n"
-                    
+                        # 获取玩家的颜色配置
+                        profit_color = self.plugin.player_settings_manager.get_color_for_change(xuid, float(absolute_profit_loss))
+                        
+                        # 构建内容
+                        content += f"账户余额: ${balance:.2f}\n"
+                        content += f"持仓市值: ${total_market_value:.2f}\n"
+                        content += f"总财富: ${total_wealth:.2f}\n"
+
+                        # 显示绝对盈亏
+                        if absolute_profit_loss > 0:
+                            content += f"绝对盈亏: {profit_color}+${absolute_profit_loss:.2f}§r\n"
+                        elif absolute_profit_loss < 0:
+                            content += f"绝对盈亏: {profit_color}${absolute_profit_loss:.2f}§r\n"
+                        else:
+                            content += f"绝对盈亏: §7${absolute_profit_loss:.2f}§r\n"
+                        
+                        # 显示相对盈亏
+                        if relative_profit_loss > 0:
+                            content += f"相对盈亏: {profit_color}+{relative_profit_loss:.2f}%%§r\n"
+                        elif relative_profit_loss < 0:
+                            content += f"相对盈亏: {profit_color}{relative_profit_loss:.2f}%%§r\n"
+                        else:
+                            content += f"相对盈亏: §7{relative_profit_loss:.2f}%%§r\n"
+                        
                     content += f"\n§r提示: 选择下方功能按钮进行操作"
                     
                     # 在主线程显示UI

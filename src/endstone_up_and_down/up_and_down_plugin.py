@@ -591,8 +591,8 @@ class UpAndDownPlugin(Plugin):
                     last_updated = stored_data[0]['last_updated'] if stored_data else time.time()
                     
                     # 构建内容
-                    content = "早安，各位彼阳群友☀️，以下是今日服务器股票排行榜"
-                    content += f"相对盈亏排行榜 (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                    content = "早安，各位彼阳群友☀️，以下是今日服务器纳斯达克排行榜"
+                    content += f" (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                     content += "前5名 (高手榜)\n\n"
                     
                     # 显示前5名
@@ -610,8 +610,8 @@ class UpAndDownPlugin(Plugin):
                             sign = ""
                         
                         content += f"#{idx} {player_name}\n"
-                        content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
-                        content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
+                        content += f"   {sign}{abs(profit_loss_percent):.2f}%\n"
+                        content += f"   {sign}${abs(profit_loss):.2f}\n\n"
                     
                     content += "倒数5名 (接盘侠榜)\n\n"
                     
@@ -633,9 +633,9 @@ class UpAndDownPlugin(Plugin):
                         
                         # 使用存储的排名
                         content += f"#{idx} {player_name}\n"
-                        content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
-                        content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
-                    content += "ARC股票插件，为群友带来初升飞舞的财富🤑"
+                        content += f"   {sign}{abs(profit_loss_percent):.2f}%\n"
+                        content += f"   {sign}${abs(profit_loss):.2f}\n\n"
+                    content += "ARC纳斯达克插件，为群友带来初升飞舞的财富🤑"
                     
                     if self.stock_dao.insert_qq_send_log(today_str):
                         self.send_to_qq_group(content)

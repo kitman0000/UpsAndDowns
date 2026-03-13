@@ -847,7 +847,7 @@ class UIManager:
             traceback.print_exc()
             player.send_message("§c显示买入面板时发生错误")
 
-    def _confirm_sell_stock(self, player, stock_name: str, json_str: str, market_price: float):
+    def _confirm_sell_stock(self, player, stock_name: str, json_str: str, market_price: float, holding):
         try:            
             fee_rate = self.plugin.setting_manager.get_trading_fee_rate()
             fee = Decimal(str(market_price)) * Decimal('0.01') * Decimal(str(fee_rate))
@@ -878,7 +878,7 @@ class UIManager:
 
             sell_form.add_button(
                 "确认卖出",
-                on_click=lambda sender: self._handle_sell_stock(sender, stock_name, json_str, market_price)
+                on_click=lambda sender: self._handle_sell_stock(sender, stock_name, holding, json_str, market_price)
             )
             
             sell_form.add_button(
@@ -991,7 +991,7 @@ class UIManager:
                         default_value=""
                     )
                 ],
-                on_submit=lambda sender, json_str: self._confirm_sell_stock(sender, stock_name, json_str, market_price),
+                on_submit=lambda sender, json_str: self._confirm_sell_stock(sender, stock_name, json_str, market_price, holding),
                 on_close=lambda sender: self.show_stock_detail_panel(sender, stock_name)
             )
             

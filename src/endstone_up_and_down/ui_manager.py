@@ -1400,11 +1400,14 @@ class UIManager:
             
             # 构建内容
             content = f"=== 绝对盈亏排行榜 (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')} ===\n\n"
-            
+            content += "§l§6前5名 (高手榜)§r\n\n"
+
+            top5 = stored_data[:5]
             # 显示前5名
-            for idx, data in enumerate(stored_data[:5], 1):
+            for data in top5:
                 player_name = self._get_player_name(data['player_xuid'])
                 profit_loss = data['absolute_profit_loss']
+                rank = data.get('rank', '?')
                 
                 # 使用统一的颜色逻辑
                 color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
@@ -1415,32 +1418,39 @@ class UIManager:
                 else:
                     sign = ""
                 
-                content += f"#{idx} {player_name}\n"
+                content += f"#{rank} {player_name}\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
                 content += f"   总财富: ${data['total_wealth']:.2f}\n"
             
-            content += "§l§7倒数5名 (韭菜榜)§r\n\n"
-            
-            # 显示倒数5名
-            bottom_5 = stored_data[-5:]
-            bottom_5.reverse()
-            for idx, data in enumerate(bottom_5, 1):
-                player_name = self._get_player_name(data['player_xuid'])
-                profit_loss = data['absolute_profit_loss']
-                
-                # 使用统一的颜色逻辑
-                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                if profit_loss > 0:
-                    sign = "+"
-                elif profit_loss < 0:
-                    sign = "-"
-                else:
-                    sign = ""
-                
-                # 使用存储的排名
-                content += f"#{idx} {player_name}\n"
-                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
-                content += f"   总财富: ${data['total_wealth']:.2f}\n"
+            # 韭菜榜 = 全服倒数最多5名（排除已在高手榜出现的玩家，避免人少时重复）
+            bottom5 = []
+            if len(stored_data) > 5:
+                top_xuids = {d['player_xuid'] for d in top5}
+                bottom5 = [
+                    d for d in stored_data[-5:]
+                    if d['player_xuid'] not in top_xuids
+                ]
+                bottom5.reverse()  # 最差的排前面
+
+            if bottom5:
+                content += "\n§l§7倒数5名 (韭菜榜)§r\n\n"
+                for data in bottom5:
+                    player_name = self._get_player_name(data['player_xuid'])
+                    profit_loss = data['absolute_profit_loss']
+                    rank = data.get('rank', '?')
+                    
+                    # 使用统一的颜色逻辑
+                    color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                    if profit_loss > 0:
+                        sign = "+"
+                    elif profit_loss < 0:
+                        sign = "-"
+                    else:
+                        sign = ""
+                    
+                    content += f"#{rank} {player_name}\n"
+                    content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n"
+                    content += f"   总财富: ${data['total_wealth']:.2f}\n"
             
             # 在主线程显示UI
             def show_panel():
@@ -1508,11 +1518,13 @@ class UIManager:
             content = f"=== 相对盈亏排行榜 (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')} ===\n\n"
             content += "§l§6前5名 (高手榜)§r\n\n"
             
+            top5 = stored_data[:5]
             # 显示前5名
-            for idx, data in enumerate(stored_data[:5], 1):
+            for data in top5:
                 player_name = self._get_player_name(data['player_xuid'])
                 profit_loss_percent = data['relative_profit_loss']
                 profit_loss = data['absolute_profit_loss']
+                rank = data.get('rank', '?')
                 
                 # 使用统一的颜色逻辑
                 color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
@@ -1523,33 +1535,40 @@ class UIManager:
                 else:
                     sign = ""
                 
-                content += f"#{idx} {player_name}\n"
+                content += f"#{rank} {player_name}\n"
                 content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
                 content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
             
-            content += "§l§7倒数5名 (接盘侠榜)§r\n\n"
-            
-            # 显示倒数5名
-            bottom_5 = stored_data[-5:]
-            bottom_5.reverse()
-            for idx, data in enumerate(bottom_5, 1):
-                player_name = self._get_player_name(data['player_xuid'])
-                profit_loss_percent = data['relative_profit_loss']
-                profit_loss = data['absolute_profit_loss']
-                
-                # 使用统一的颜色逻辑
-                color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
-                if profit_loss_percent > 0:
-                    sign = "+"
-                elif profit_loss_percent < 0:
-                    sign = "-"
-                else:
-                    sign = ""
-                
-                # 使用存储的排名
-                content += f"#{idx} {player_name}\n"
-                content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
-                content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
+            # 接盘侠 = 全服倒数最多5名（排除已在高手榜出现的玩家）
+            bottom5 = []
+            if len(stored_data) > 5:
+                top_xuids = {d['player_xuid'] for d in top5}
+                bottom5 = [
+                    d for d in stored_data[-5:]
+                    if d['player_xuid'] not in top_xuids
+                ]
+                bottom5.reverse()
+
+            if bottom5:
+                content += "§l§7倒数5名 (接盘侠榜)§r\n\n"
+                for data in bottom5:
+                    player_name = self._get_player_name(data['player_xuid'])
+                    profit_loss_percent = data['relative_profit_loss']
+                    profit_loss = data['absolute_profit_loss']
+                    rank = data.get('rank', '?')
+                    
+                    # 使用统一的颜色逻辑
+                    color = self.plugin.player_settings_manager.get_color_for_change(xuid, profit_loss)
+                    if profit_loss_percent > 0:
+                        sign = "+"
+                    elif profit_loss_percent < 0:
+                        sign = "-"
+                    else:
+                        sign = ""
+                    
+                    content += f"#{rank} {player_name}\n"
+                    content += f"   收益率: {color}{sign}{abs(profit_loss_percent):.2f}%%§r\n"
+                    content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
             
             # 在主线程显示UI
             def show_panel():

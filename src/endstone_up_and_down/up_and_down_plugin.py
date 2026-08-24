@@ -672,10 +672,12 @@ class UpAndDownPlugin(Plugin):
         )
         content += "前5名 (高手榜)\n\n"
 
-        for idx, data in enumerate(stored_data[:5], 1):
+        top5 = stored_data[:5]
+        for data in top5:
             player_name = self.ui_manager._get_player_name(data["player_xuid"])
             profit_loss_percent = data["relative_profit_loss"]
             profit_loss = data["absolute_profit_loss"]
+            rank = data.get("rank", "?")
 
             if profit_loss_percent > 0:
                 sign = "🟥+"
@@ -684,29 +686,37 @@ class UpAndDownPlugin(Plugin):
             else:
                 sign = ""
 
-            content += f"#{idx} {player_name}\n"
+            content += f"#{rank} {player_name}\n"
             content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
             content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
 
-        content += "倒数5名 (接盘侠榜)\n\n"
+        bottom5 = []
+        if len(stored_data) > 5:
+            top_xuids = {d["player_xuid"] for d in top5}
+            bottom5 = [
+                d for d in stored_data[-5:]
+                if d["player_xuid"] not in top_xuids
+            ]
+            bottom5.reverse()
 
-        bottom_5 = list(stored_data[-5:])
-        bottom_5.reverse()
-        for idx, data in enumerate(bottom_5, 1):
-            player_name = self.ui_manager._get_player_name(data["player_xuid"])
-            profit_loss_percent = data["relative_profit_loss"]
-            profit_loss = data["absolute_profit_loss"]
+        if bottom5:
+            content += "倒数5名 (接盘侠榜)\n\n"
+            for data in bottom5:
+                player_name = self.ui_manager._get_player_name(data["player_xuid"])
+                profit_loss_percent = data["relative_profit_loss"]
+                profit_loss = data["absolute_profit_loss"]
+                rank = data.get("rank", "?")
 
-            if profit_loss_percent > 0:
-                sign = "🟥+"
-            elif profit_loss_percent < 0:
-                sign = "🟩-"
-            else:
-                sign = ""
+                if profit_loss_percent > 0:
+                    sign = "🟥+"
+                elif profit_loss_percent < 0:
+                    sign = "🟩-"
+                else:
+                    sign = ""
 
-            content += f"#{idx} {player_name}\n"
-            content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
-            content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
+                content += f"#{rank} {player_name}\n"
+                content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
+                content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
         content += "ARC股票插件，为群友带来初升飞舞的财富🤑"
 
         try:
@@ -842,7 +852,13 @@ class UpAndDownPlugin(Plugin):
 
         if bottom_n > 0 and len(stored) > top_n:
             lines.append(f"倒数{bottom_n}名：")
-            bottom_rows = list(stored[-bottom_n:])
+            top_xuids = {
+                d.get("player_xuid") for d in stored[:top_n] if d.get("player_xuid")
+            }
+            bottom_rows = [
+                d for d in stored[-bottom_n:]
+                if d.get("player_xuid") not in top_xuids
+            ]
             bottom_rows.reverse()
             for data in bottom_rows:
                 name = self._resolve_player_display_name(data.get("player_xuid") or "")

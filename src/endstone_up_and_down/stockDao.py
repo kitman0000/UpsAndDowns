@@ -304,9 +304,9 @@ class StockDao:
         # Get current timestamp
         current_time = time.time()
         
-        # Get data from cache if it's fresh enough (less than 1 hour old)
+        # 返回全量排名（前 N / 倒数 N 都依赖完整榜单；勿 LIMIT 10）
         cached_data = self.database_manager.query_all(
-            "SELECT * FROM tb_leaderboard WHERE is_absolute = ? AND last_updated > ? ORDER BY rank LIMIT 10",
+            "SELECT * FROM tb_leaderboard WHERE is_absolute = ? AND last_updated > ? ORDER BY rank",
             (is_absolute, current_time - 3600)
         )
 

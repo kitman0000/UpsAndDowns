@@ -391,7 +391,10 @@ class StockDao:
                 
                 # 获取当前股票价格
                 if stock_name not in price_cache_dict:
-                    current_price, _ = get_stock_price_func(stock_name)
+                    try:
+                        current_price, _ = get_stock_price_func(stock_name)
+                    except Exception:
+                        current_price = None
                     price_cache_dict[stock_name] = current_price
                 else:
                     current_price = price_cache_dict[stock_name]
@@ -493,4 +496,16 @@ class StockDao:
             return True
         except Exception as ex:
             print(f"更新QQ日志表错误:{ex}")
+            return False
+
+    def delete_qq_send_log(self, date_str):
+        """发送失败时清除当日标记，便于后续排行榜任务重试。"""
+        try:
+            self.database_manager.execute(
+                "DELETE FROM tb_qq_notice WHERE send_date = ?",
+                (date_str,),
+            )
+            return True
+        except Exception as ex:
+            print(f"删除QQ日志错误:{ex}")
             return False

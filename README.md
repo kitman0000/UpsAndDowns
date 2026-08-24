@@ -140,7 +140,10 @@ update_interval=60
 
 ## 📝 更新日志
 
-### v0.5.2 (最新)
+### v0.5.3 (最新)
+- **🐛 修复群日报停发**: Endstone 将 entry-point 的 `-` 转为 `_`，改为正确查找 `arc_qq_sync_astrbot`；发送失败可重试；行情空数据不再打断整次排行榜/日报任务
+
+### v0.5.2
 - **🤖 AI 工具 API**: 新增 `api_get_leaderboard_text` / `api_get_stock_quote_text`，供 ARC AI Helper 与 AstrBot 弧光中枢查询排行与行情
 
 ### v0.5.1

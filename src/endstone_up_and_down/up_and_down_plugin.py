@@ -117,9 +117,16 @@ class UpAndDownPlugin(Plugin):
         self.qqsync = self._get_qq_sync_plugin()
 
     def _get_qq_sync_plugin(self):
-        """Resolve ARC QQ Sync plugin (AstrBot hub id first, legacy id fallback)."""
+        """Resolve ARC QQ Sync plugin (AstrBot hub id first, legacy id fallback).
+
+        Endstone 会把 entry-point 里的 '-' 转成 '_'，故优先查找 arc_qq_sync_astrbot。
+        """
         pm = self.server.plugin_manager
-        for name in ("arc-qq-sync-astrbot", "qqsync_plugin"):
+        for name in (
+            "arc_qq_sync_astrbot",
+            "arc-qq-sync-astrbot",
+            "qqsync_plugin",
+        ):
             plug = pm.get_plugin(name)
             if plug is not None:
                 return plug
@@ -252,6 +259,9 @@ class UpAndDownPlugin(Plugin):
             return None, None
 
         df = ticket.history(period=period, interval=interval, prepost=True)
+
+        if df is None or getattr(df, "empty", True) or "Close" not in df.columns:
+            return None, None
         
         if return_period:
             return list(df["Close"]), True
@@ -609,74 +619,23 @@ class UpAndDownPlugin(Plugin):
             try:
                 self.logger.info("Leaderboard updating")
 
-                # Call get_all_players_profit_loss with is_absolute=True
-                absolute_data = self.stock_dao.get_all_players_profit_loss(self.get_stock_last_price)
-                self.stock_dao.save_leaderboard_data(absolute_data, True)
-                
-                # Call get_all_players_profit_loss with is_absolute=False
-                relative_data = self.stock_dao.get_all_players_profit_loss(self.get_stock_last_price)
-                self.stock_dao.save_leaderboard_data(relative_data, False)
-                
-                self.logger.info("Leaderboard updated successfully")
+                try:
+                    # Call get_all_players_profit_loss with is_absolute=True
+                    absolute_data = self.stock_dao.get_all_players_profit_loss(self.get_stock_last_price)
+                    self.stock_dao.save_leaderboard_data(absolute_data, True)
 
-                # 获取当前日期，格式 yyyy-mm-dd
-                if self.qqsync is not None and datetime.datetime.now().time() > datetime.time(8, 0):
-                    today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-                    stored_data = self.get_leaderboard_data(is_absolute=False)
-            
-                    # 获取最后更新时间
-                    last_updated = stored_data[0]['last_updated'] if stored_data else time.time()
-                    
-                    # 构建内容
-                    content = "早安，各位彼阳群友☀️，以下是今日服务器股票排行榜"
-                    content += f"相对盈亏排行榜 (更新时间: {datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                    content += "前5名 (高手榜)\n\n"
-                    
-                    # 显示前5名
-                    for idx, data in enumerate(stored_data[:5], 1):
-                        player_name = self.ui_manager._get_player_name(data['player_xuid'])
-                        profit_loss_percent = data['relative_profit_loss']
-                        profit_loss = data['absolute_profit_loss']
-                        
-                        # 使用统一的颜色逻辑
-                        if profit_loss_percent > 0:
-                            sign = "🟥+"
-                        elif profit_loss_percent < 0:
-                            sign = "🟩-"
-                        else:
-                            sign = ""
-                        
-                        content += f"#{idx} {player_name}\n"
-                        content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
-                        content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
-                    
-                    content += "倒数5名 (接盘侠榜)\n\n"
-                    
-                    # 显示倒数5名
-                    bottom_5 = stored_data[-5:]
-                    bottom_5.reverse()
-                    for idx, data in enumerate(bottom_5, 1):
-                        player_name = self.ui_manager._get_player_name(data['player_xuid'])
-                        profit_loss_percent = data['relative_profit_loss']
-                        profit_loss = data['absolute_profit_loss']
-                        
-                        # 使用统一的颜色逻辑
-                        if profit_loss_percent > 0:
-                            sign = "🟥+"
-                        elif profit_loss_percent < 0:
-                            sign = "🟩-"
-                        else:
-                            sign = ""
-                        
-                        # 使用存储的排名
-                        content += f"#{idx} {player_name}\n"
-                        content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
-                        content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
-                    content += "ARC股票插件，为群友带来初升飞舞的财富🤑"
-                    
-                    if self.stock_dao.insert_qq_send_log(today_str):
-                        self.send_to_qq_group(content)
+                    # Call get_all_players_profit_loss with is_absolute=False
+                    relative_data = self.stock_dao.get_all_players_profit_loss(self.get_stock_last_price)
+                    self.stock_dao.save_leaderboard_data(relative_data, False)
 
+                    self.logger.info("Leaderboard updated successfully")
+                except Exception as e:
+                    # 行情拉取失败时仍尝试用缓存发日报，避免整天停发
+                    self.logger.error(f"Failed to refresh leaderboard data: {str(e)}")
+                    import traceback
+                    self.logger.error(traceback.format_exc())
+
+                self._try_send_daily_qq_report()
 
             except Exception as e:
                 self.logger.error(f"Failed to update leaderboard: {str(e)}")
@@ -684,6 +643,89 @@ class UpAndDownPlugin(Plugin):
                 self.logger.error(traceback.format_exc())
 
         threading.Thread(target=_execute).start()
+
+    def _try_send_daily_qq_report(self):
+        """每天 8:00 后首次排行榜任务触发时，向 QQ 群发送相对盈亏日报（每日一次）。"""
+        if datetime.datetime.now().time() <= datetime.time(8, 0):
+            return
+
+        qqsync = self._get_qq_sync_plugin()
+        self.qqsync = qqsync
+        if qqsync is None:
+            self.logger.warning(
+                "[UpAndDown] 未找到 QQ Sync（arc_qq_sync_astrbot），跳过今日股票群日报"
+            )
+            return
+
+        today_str = datetime.datetime.now().strftime("%Y-%m-%d")
+        # 先占位防并发重复；发送失败则删掉以便本轮后续任务重试
+        if not self.stock_dao.insert_qq_send_log(today_str):
+            return
+
+        stored_data = self.get_leaderboard_data(is_absolute=False) or []
+        last_updated = stored_data[0]["last_updated"] if stored_data else time.time()
+
+        content = "早安，各位彼阳群友☀️，以下是今日服务器股票排行榜"
+        content += (
+            f"相对盈亏排行榜 (更新时间: "
+            f"{datetime.datetime.fromtimestamp(last_updated).strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        )
+        content += "前5名 (高手榜)\n\n"
+
+        for idx, data in enumerate(stored_data[:5], 1):
+            player_name = self.ui_manager._get_player_name(data["player_xuid"])
+            profit_loss_percent = data["relative_profit_loss"]
+            profit_loss = data["absolute_profit_loss"]
+
+            if profit_loss_percent > 0:
+                sign = "🟥+"
+            elif profit_loss_percent < 0:
+                sign = "🟩-"
+            else:
+                sign = ""
+
+            content += f"#{idx} {player_name}\n"
+            content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
+            content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
+
+        content += "倒数5名 (接盘侠榜)\n\n"
+
+        bottom_5 = list(stored_data[-5:])
+        bottom_5.reverse()
+        for idx, data in enumerate(bottom_5, 1):
+            player_name = self.ui_manager._get_player_name(data["player_xuid"])
+            profit_loss_percent = data["relative_profit_loss"]
+            profit_loss = data["absolute_profit_loss"]
+
+            if profit_loss_percent > 0:
+                sign = "🟥+"
+            elif profit_loss_percent < 0:
+                sign = "🟩-"
+            else:
+                sign = ""
+
+            content += f"#{idx} {player_name}\n"
+            content += f"   收益率: {sign}{abs(profit_loss_percent):.2f}%\n"
+            content += f"   盈亏: {sign}${abs(profit_loss):.2f}\n\n"
+        content += "ARC股票插件，为群友带来初升飞舞的财富🤑"
+
+        try:
+            success = False
+            if hasattr(qqsync, "api_send_raw"):
+                success = bool(qqsync.api_send_raw(content))
+            elif hasattr(qqsync, "api_send_message"):
+                success = bool(qqsync.api_send_message(content))
+            else:
+                self.logger.warning("[UpAndDown] QQ Sync 无可用发送 API")
+
+            if success:
+                self.logger.info(f"[UpAndDown] 股票群日报已发送: {content[:80]}...")
+            else:
+                self.stock_dao.delete_qq_send_log(today_str)
+                self.logger.warning("[UpAndDown] 股票群日报发送失败，已清除当日标记以便重试")
+        except Exception as e:
+            self.stock_dao.delete_qq_send_log(today_str)
+            self.logger.error(f"[UpAndDown] 股票群日报发送异常: {e}")
 
 
     def get_leaderboard_data(self, is_absolute=True):

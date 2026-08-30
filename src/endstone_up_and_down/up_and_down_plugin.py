@@ -194,12 +194,21 @@ class UpAndDownPlugin(Plugin):
                     rtn = command_func(xuid, sender, args)
                 
                 if return_value:
+                    xuid = str(getattr(player, "xuid", "") or "").strip()
+                    name = str(getattr(player, "name", "") or "").strip() or player_name
+                    result = rtn
+
+                    def _callback_on_main() -> None:
+                        p = self.ui_manager._resolve_online_player(xuid, name)
+                        if p is None:
+                            return
+                        callback(result, p, callback_args)
+
                     self.server.scheduler.run_task(
                         self,
-                        lambda: callback(rtn, sender, callback_args),
-                        delay=0
+                        _callback_on_main,
+                        delay=0,
                     )
-                    
                 
             except Exception as e:
                 import traceback

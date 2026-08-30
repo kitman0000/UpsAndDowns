@@ -20,6 +20,34 @@ class UIManager:
         :param plugin: 插件实例
         """
         self.plugin: "UpAndDownPlugin" = plugin
+
+    def _resolve_online_player(self, xuid: str = "", name: str = "") -> Optional[object]:
+        """从 online_players 重取活对象，避免对已销毁 Player 调用方法导致 purecall。"""
+        xuid_s = str(xuid or "").strip()
+        if xuid_s:
+            for p in self.plugin.server.online_players or []:
+                if str(getattr(p, "xuid", "")) == xuid_s:
+                    return p
+        name_s = str(name or "").strip()
+        if name_s:
+            try:
+                return self.plugin.server.get_player(name_s)
+            except Exception:
+                return None
+        return None
+
+    def _run_for_player(self, player, fn: Callable, delay: int = 0):
+        """调度仅对仍在线玩家执行的回调；闭包只存 xuid/name。"""
+        xuid = str(getattr(player, "xuid", "") or "").strip()
+        name = str(getattr(player, "name", "") or "").strip()
+
+        def _wrapped() -> None:
+            p = self._resolve_online_player(xuid, name)
+            if p is None:
+                return
+            fn(p)
+
+        return self.plugin.server.scheduler.run_task(self.plugin, _wrapped, delay=delay)
     
     # ==================== 主面板 ====================
     def show_main_panel(self, player):
@@ -76,7 +104,7 @@ class UIManager:
                     content += f"\n§r提示: 选择下方功能按钮进行操作"
                     
                     # 在主线程显示UI
-                    def show_panel():
+                    def show_panel(p):
                         # 创建主面板
                         main_panel = ActionForm(
                             title="股票交易系统",
@@ -124,23 +152,15 @@ class UIManager:
                             on_click=lambda sender: self.show_help_panel(sender)
                         )
                         
-                        player.send_form(main_panel)
+                        p.send_form(main_panel)
                     
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        show_panel,
-                        delay=0
-                    )
+                    self._run_for_player(player, show_panel)
                     
                 except Exception as e:
                     print(f"加载主面板数据错误: {str(e)}")
                     import traceback
                     traceback.print_exc()
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message("§c加载数据时发生错误"),
-                        delay=0
-                    )
+                    self._run_for_player(player, lambda p: p.send_message("§c加载数据时发生错误"))
             
             thread = threading.Thread(target=load_data)
             thread.start()
@@ -218,19 +238,15 @@ class UIManager:
                     holdings = [h for h in holdings if h['share'] > 0]
                     
                     if not holdings:
-                        def show_no_holdings():
+                        def show_no_holdings(p):
                             no_holdings_form = ActionForm(
                                 title="我的持仓",
                                 content="您目前没有任何持仓\n\n提示: 使用搜索功能查找并购买股票",
                                 on_close=lambda sender: self.show_main_panel(sender)
                             )
-                            player.send_form(no_holdings_form)
+                            p.send_form(no_holdings_form)
                         
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            show_no_holdings,
-                            delay=0
-                        )
+                        self._run_for_player(player, show_no_holdings)
                         return
                     
                     # 构建持仓按钮数据
@@ -273,7 +289,7 @@ class UIManager:
                         buttons_data.append((button_text, stock_name))
                     
                     # 在主线程显示UI
-                    def show_panel():
+                    def show_panel(p):
                         # 创建持仓列表面板
                         holdings_panel = ActionForm(
                             title="我的持仓",
@@ -292,23 +308,15 @@ class UIManager:
                             on_click=lambda sender: self.show_main_panel(sender)
                         )
                         
-                        player.send_form(holdings_panel)
+                        p.send_form(holdings_panel)
                     
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        show_panel,
-                        delay=0
-                    )
+                    self._run_for_player(player, show_panel)
                     
                 except Exception as e:
                     print(f"加载持仓数据错误: {str(e)}")
                     import traceback
                     traceback.print_exc()
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message("§c加载持仓数据时发生错误"),
-                        delay=0
-                    )
+                    self._run_for_player(player, lambda p: p.send_message("§c加载持仓数据时发生错误"))
             
             thread = threading.Thread(target=load_data)
             thread.start()
@@ -333,19 +341,15 @@ class UIManager:
                     favorites = self.plugin.favorites_manager.get_favorites(xuid, page=0, page_size=20)
                     
                     if not favorites:
-                        def show_no_favorites():
+                        def show_no_favorites(p):
                             no_favorites_form = ActionForm(
                                 title="我的收藏",
                                 content="您还没有收藏任何股票\n\n提示: 使用搜索功能查找股票并添加收藏",
                                 on_close=lambda sender: self.show_main_panel(sender)
                             )
-                            player.send_form(no_favorites_form)
+                            p.send_form(no_favorites_form)
                         
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            show_no_favorites,
-                            delay=0
-                        )
+                        self._run_for_player(player, show_no_favorites)
                         return
                     
                     # 构建收藏按钮数据
@@ -367,7 +371,7 @@ class UIManager:
                         buttons_data.append((button_text, stock_name))
                     
                     # 在主线程显示UI
-                    def show_panel():
+                    def show_panel(p):
                         # 创建收藏列表面板
                         favorites_panel = ActionForm(
                             title="我的收藏",
@@ -386,23 +390,15 @@ class UIManager:
                             on_click=lambda sender: self.show_main_panel(sender)
                         )
                         
-                        player.send_form(favorites_panel)
+                        p.send_form(favorites_panel)
                     
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        show_panel,
-                        delay=0
-                    )
+                    self._run_for_player(player, show_panel)
                     
                 except Exception as e:
                     print(f"加载收藏数据错误: {str(e)}")
                     import traceback
                     traceback.print_exc()
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message("§c加载收藏数据时发生错误"),
-                        delay=0
-                    )
+                    self._run_for_player(player, lambda p: p.send_message("§c加载收藏数据时发生错误"))
             
             thread = threading.Thread(target=load_data)
             thread.start()
@@ -450,37 +446,25 @@ class UIManager:
                     price, tradeable = self.plugin.get_stock_last_price(stock_name)
                     
                     if price is None and tradeable is None:
-                        def show_error():
+                        def show_error(p):
                             error_form = ActionForm(
                                 title="搜索失败",
                                 content=f"未找到股票: {stock_name}\n\n可能原因:\n1. 股票代码输入错误\n2. 该股票市场暂不支持\n3. 网络连接问题",
                                 on_close=lambda sender: self.show_search_panel(sender)
                             )
-                            player.send_form(error_form)
+                            p.send_form(error_form)
                         
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            show_error,
-                            delay=0
-                        )
+                        self._run_for_player(player, show_error)
                         return
                     
                     # 显示股票详情
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: self.show_stock_detail_panel(player, stock_name),
-                        delay=0
-                    )
+                    self._run_for_player(player, lambda p: self.show_stock_detail_panel(p, stock_name))
                     
                 except Exception as e:
                     print(f"搜索股票线程错误: {str(e)}")
                     import traceback
                     traceback.print_exc()
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message("§c搜索股票时发生错误"),
-                        delay=0
-                    )
+                    self._run_for_player(player, lambda p: p.send_message("§c搜索股票时发生错误"))
             
             thread = threading.Thread(target=search_stock)
             thread.start()
@@ -506,11 +490,7 @@ class UIManager:
                     current_price, tradeable = self.plugin.get_stock_last_price(stock_name)
                     
                     if current_price is None:
-                        self.plugin.server.scheduler.run_task(
-                            self.plugin,
-                            lambda: player.send_message(f"§c无法获取股票 {stock_name} 的价格信息"),
-                            delay=0
-                        )
+                        self._run_for_player(player, lambda p: p.send_message(f"§c无法获取股票 {stock_name} 的价格信息"))
                         return
                     
                     # 获取持仓信息
@@ -551,7 +531,7 @@ class UIManager:
                     is_favorite = self.plugin.favorites_manager.is_favorite(xuid, stock_name)
                     
                     # 在主线程显示UI
-                    def show_panel():
+                    def show_panel(p):
                         # 创建详情面板
                         detail_panel = ActionForm(
                             title=f"{stock_name}",
@@ -601,23 +581,15 @@ class UIManager:
                                 on_click=lambda sender: self.show_main_panel(sender)
                             )
                         
-                        player.send_form(detail_panel)
+                        p.send_form(detail_panel)
                     
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        show_panel,
-                        delay=0
-                    )
+                    self._run_for_player(player, show_panel)
                     
                 except Exception as e:
                     print(f"加载股票详情数据错误: {str(e)}")
                     import traceback
                     traceback.print_exc()
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message("§c加载股票详情时发生错误"),
-                        delay=0
-                    )
+                    self._run_for_player(player, lambda p: p.send_message("§c加载股票详情时发生错误"))
             
             thread = threading.Thread(target=load_data)
             thread.start()
@@ -674,11 +646,7 @@ class UIManager:
                 
                 if price_list is None:
                     # 使用调度器在主线程发送消息
-                    self.plugin.server.scheduler.run_task(
-                        self.plugin,
-                        lambda: player.send_message(f"无法获取 {stock_name} 的价格数据"),
-                        delay=0
-                    )
+                    self._run_for_player(player, lambda p: p.send_message(f"无法获取 {stock_name} 的价格数据"))
                     return
                 
                 # 构建价格走势内容
@@ -710,7 +678,7 @@ class UIManager:
                 content += f"\n§7提示: 建议使用专业股票软件查询最新价格§r"
                 
                 # 使用调度器在主线程显示面板
-                def show_panel():
+                def show_panel(p):
                     history_panel = ActionForm(
                         title=f"{stock_name} 价格走势",
                         content=content
@@ -738,24 +706,16 @@ class UIManager:
                         on_click=lambda sender: self.show_stock_detail_panel(sender, stock_name)
                     )
                     
-                    player.send_form(history_panel)
+                    p.send_form(history_panel)
                 
-                self.plugin.server.scheduler.run_task(
-                    self.plugin,
-                    show_panel,
-                    delay=0
-                )
+                self._run_for_player(player, show_panel)
                 
             except Exception as e:
                 print(f"查询价格走势错误: {str(e)}")
                 import traceback
                 traceback.print_exc()
                 # 使用调度器在主线程发送消息
-                self.plugin.server.scheduler.run_task(
-                    self.plugin,
-                    lambda: player.send_message("查询价格走势时发生错误"),
-                    delay=0
-                )
+                self._run_for_player(player, lambda p: p.send_message("查询价格走势时发生错误"))
         
         thread = threading.Thread(target=show_history, args=[unit])
         thread.start()
@@ -1376,19 +1336,15 @@ class UIManager:
             stored_data = self.plugin.get_leaderboard_data(is_absolute=True)
             
             if not stored_data:
-                def show_no_data():
+                def show_no_data(p):
                     no_data_form = ActionForm(
                         title="绝对盈亏榜",
                         content="暂无数据",
                         on_close=lambda sender: self.show_leaderboard_menu(sender)
                     )
-                    player.send_form(no_data_form)
+                    p.send_form(no_data_form)
                 
-                self.plugin.server.scheduler.run_task(
-                    self.plugin,
-                    show_no_data,
-                    delay=0
-                )
+                self._run_for_player(player, show_no_data)
                 return
             
             # 获取最后更新时间
@@ -1453,7 +1409,7 @@ class UIManager:
                     content += f"   总财富: ${data['total_wealth']:.2f}\n"
             
             # 在主线程显示UI
-            def show_panel():
+            def show_panel(p):
                 leaderboard_panel = ActionForm(
                     title="绝对盈亏榜",
                     content=content
@@ -1464,23 +1420,15 @@ class UIManager:
                     on_click=lambda sender: self.show_leaderboard_menu(sender)
                 )
                 
-                player.send_form(leaderboard_panel)
+                p.send_form(leaderboard_panel)
             
-            self.plugin.server.scheduler.run_task(
-                self.plugin,
-                show_panel,
-                delay=0
-            )
+            self._run_for_player(player, show_panel)
             
         except Exception as e:
             print(f"加载绝对盈亏排行榜数据错误: {str(e)}")
             import traceback
             traceback.print_exc()
-            self.plugin.server.scheduler.run_task(
-                self.plugin,
-                lambda: player.send_message("显示绝对盈亏排行榜时发生错误"),
-                delay=0
-            )
+            self._run_for_player(player, lambda p: p.send_message("显示绝对盈亏排行榜时发生错误"))
 
 
     def show_relative_leaderboard(self, player):
@@ -1492,19 +1440,15 @@ class UIManager:
             stored_data = self.plugin.get_leaderboard_data(is_absolute=False)
             
             if not stored_data:
-                def show_no_data():
+                def show_no_data(p):
                     no_data_form = ActionForm(
                         title="相对盈亏榜",
                         content="暂无数据",
                         on_close=lambda sender: self.show_leaderboard_menu(sender)
                     )
-                    player.send_form(no_data_form)
+                    p.send_form(no_data_form)
                 
-                self.plugin.server.scheduler.run_task(
-                    self.plugin,
-                    show_no_data,
-                    delay=0
-                )
+                self._run_for_player(player, show_no_data)
                 return
             
             # 获取最后更新时间
@@ -1571,7 +1515,7 @@ class UIManager:
                     content += f"   盈亏: {color}{sign}${abs(profit_loss):.2f}§r\n\n"
             
             # 在主线程显示UI
-            def show_panel():
+            def show_panel(p):
                 leaderboard_panel = ActionForm(
                     title="相对盈亏榜",
                     content=content
@@ -1582,23 +1526,15 @@ class UIManager:
                     on_click=lambda sender: self.show_leaderboard_menu(sender)
                 )
                 
-                player.send_form(leaderboard_panel)
+                p.send_form(leaderboard_panel)
             
-            self.plugin.server.scheduler.run_task(
-                self.plugin,
-                show_panel,
-                delay=0
-            )
+            self._run_for_player(player, show_panel)
             
         except Exception as e:
             print(f"加载相对盈亏排行榜数据错误: {str(e)}")
             import traceback
             traceback.print_exc()
-            self.plugin.server.scheduler.run_task(
-                self.plugin,
-                lambda: player.send_message("显示相对盈亏排行榜时发生错误"),
-                delay=0
-            )
+            self._run_for_player(player, lambda p: p.send_message("显示相对盈亏排行榜时发生错误"))
     
     
     def _get_player_name(self, player_xuid: str) -> str:
